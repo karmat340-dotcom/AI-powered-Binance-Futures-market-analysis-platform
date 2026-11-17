@@ -75,8 +75,14 @@ function PriceChart({bars,livePrice,symbol,frame}){
 
 export default function App(){
   const [symbol,setSymbol]=useState('BTCUSDT'),[frame,setFrame]=useState('15m'),[bars,setBars]=useState([]),[tickers,setTickers]=useState([]),[busy,setBusy]=useState(true),[error,setError]=useState(''),[query,setQuery]=useState(''),[updated,setUpdated]=useState('');
-  const [activeTrade,setActiveTrade]=useState(readSavedTrade);
-  const [armed,setArmed]=useState(()=>localStorage.getItem('tradeai-armed')!=='false');
+  const [activeTrades,setActiveTrades]=useState(()=>{
+    try{
+      const saved=JSON.parse(localStorage.getItem('tradeai-active-trades')||'{}');
+      if(Object.keys(saved).length)return saved;
+      const legacy=readSavedTrade();
+      return legacy?{[legacy.symbol]:legacy}:{};
+    }catch{return {}}
+  });
   const [loadedKey,setLoadedKey]=useState('');
   const requestRef=useRef(0);
   async function load(){
@@ -104,31 +110,44 @@ export default function App(){
   const ind=useMemo(()=>closes.length>30?{e9:ema(closes.slice(-60),9),e21:ema(closes.slice(-80),21),e50:ema(closes.slice(-120),50),rsi:rsi(closes)}:null,[bars]);
   const signal=ind?(last>ind.e9&&ind.e9>ind.e21&&ind.rsi<70?'LONG':last<ind.e9&&ind.e9<ind.e21&&ind.rsi>30?'SHORT':'WAIT'):'WAIT';
   const score=ind?Math.min(92,Math.round(48+Math.abs(ind.e9-ind.e21)/Math.max(last,1e-9)*15000+Math.abs(ind.rsi-50)*.35)):0;
-  useEffect(()=>{if(activeTrade)localStorage.setItem('tradeai-active-trade',JSON.stringify(activeTrade));else localStorage.removeItem('tradeai-active-trade')},[activeTrade]);
-  useEffect(()=>{localStorage.setItem('tradeai-armed',String(armed))},[armed]);
+  useEffect(()=>{localStorage.setItem('tradeai-active-trades',JSON.stringify(activeTrades))},[activeTrades]);
   useEffect(()=>{
-    if(!activeTrade)return;
-    const market=tickers.find(t=>t.symbol===activeTrade.symbol);
-    if(!market)return;
-    const price=Number(market.lastPrice);
-    if(!price)return;
-    const hitSL=activeTrade.side==='LONG'?price<=activeTrade.sl:price>=activeTrade.sl;
-    const hitTP=activeTrade.side==='LONG'?price>=activeTrade.tp3:price<=activeTrade.tp3;
-    if(hitSL||hitTP){
-      const closed={...activeTrade,status:hitTP?'TP3 HIT':'STOP LOSS HIT',exitPrice:price,closedAt:new Date().toISOString()};
-      localStorage.setItem('tradeai-last-closed-trade',JSON.stringify(closed));
-      setActiveTrade(null);
-      setArmed(false);
-    }
-  },[tickers,activeTrade]);
+    if(!tickers.length)return;
+    setActiveTrades(current=>{
+      let changed=false;
+      const next={...current};
+      Object.entries(current).forEach(([tradeSymbol,trade])=>{
+        const market=tickers.find(t=>t.symbol===tradeSymbol);
+        const price=Number(market?.lastPrice);
+        if(!price)return;
+        const hitSL=trade.side==='LONG'?price<=trade.sl:price>=trade.sl;
+        const hitTP=trade.side==='LONG'?price>=trade.tp3:price<=trade.tp3;
+        if(hitSL||hitTP){
+          const closed={...trade,status:hitTP?'TP3 HIT':'STOP LOSS HIT',exitPrice:price,closedAt:new Date().toISOString()};
+          localStorage.setItem('tradeai-last-closed-'+tradeSymbol,JSON.stringify(closed));
+          delete next[tradeSymbol];
+          changed=true;
+        }
+      });
+      return changed?next:current;
+    });
+  },[tickers]);
   useEffect(()=>{
-    if(signal==='WAIT'&&!activeTrade&&!armed)setArmed(true);
-    if(dataReady&&!activeTrade&&armed&&signal!=='WAIT'&&last>0&&bars.length>30){
-      setActiveTrade(makeTrade(signal,symbol,frame,last,bars));
-    }
-  },[signal,activeTrade,armed,last,symbol,frame,bars,dataReady]);
-  const displayTrade=activeTrade?.symbol===symbol?activeTrade:null;
-  const otherActiveTrade=activeTrade&&activeTrade.symbol!==symbol?activeTrade:null;
+    if(!dataReady||signal==='WAIT'||!last||bars.length<=30||activeTrades[symbol])return;
+    const key='tradeai-last-signal-'+symbol;
+    const previous=localStorage.getItem(key);
+    localStorage.setItem(key,signal);
+    if(previous===signal)return;
+    setActiveTrades(current=>{
+      if(current[symbol])return current;
+      return {...current,[symbol]:makeTrade(signal,symbol,frame,last,bars)};
+    });
+  },[signal,activeTrades,symbol,frame,last,bars,dataReady]);
+  useEffect(()=>{
+    if(signal==='WAIT')localStorage.setItem('tradeai-last-signal-'+symbol,'WAIT');
+  },[signal,symbol]);
+  const displayTrade=activeTrades[symbol]||null;
+  const activeTradeCount=Object.keys(activeTrades).length;
   const filtered=tickers.filter(x=>x.symbol.includes(query.toUpperCase())).slice(0,50);
   return <div className="app">
     <aside className="sidebar">
@@ -148,7 +167,7 @@ export default function App(){
           {bars.length>0?<PriceChart bars={bars} livePrice={last} symbol={symbol} frame={frame}/>:<div className="empty-chart">{busy?'Loading live candles…':'No chart data available'}</div>}
           <div className="chart-footer"><span><i className="pulse"/> {busy?'Updating market data':'Market data connected'}</span><span>Updated {updated||'—'}</span></div>{error&&<div className="error">{error}</div>}
         </section>
-        <section className="panel signal-panel"><div className="panel-head"><div><h2><Zap/> AI signal analysis</h2><small>Rule-based technical confluence</small></div><span className="beta">BETA</span></div><div className={'signal-box '+signal.toLowerCase()}><div className="signal-top"><span>MARKET BIAS</span><span className="signal-dot"/></div><div className="signal-word">{signal}</div><p>{signal==='WAIT'?'Conditions are mixed. Wait for stronger confirmation.':signal==='LONG'?'Bullish momentum alignment detected. Look for a confirmed entry.':'Bearish momentum alignment detected. Look for a confirmed entry.'}</p></div><div className="confidence"><div><span>Confluence score</span><b>{score||'—'}<small>/100</small></b></div><div className="meter"><i style={{width:score+'%'}}/></div><small className="disclaimer">Heuristic score — not a probability of profit.</small></div><div className="levels"><div><span>{displayTrade?'ACTIVE '+displayTrade.side+' · '+displayTrade.symbol:'Selected market entry'}</span><b>{displayTrade?fmt(displayTrade.entry):(last?fmt(last):'—')}</b></div><div><span>Stop loss</span><b className="red">{displayTrade?fmt(displayTrade.sl):'Await confirmation'}</b></div><div><span>Take profit 1 / 2 / 3</span><b className="green">{displayTrade?[displayTrade.tp1,displayTrade.tp2,displayTrade.tp3].map(fmt).join(' / '):'Await confirmation'}</b></div><div><span>Trade status</span><b>{displayTrade?'LOCKED · '+displayTrade.frame:(otherActiveTrade?'Blocked · '+otherActiveTrade.symbol+' trade active':(armed?'Waiting for setup':'Waiting for signal reset'))}</b></div></div><div className="signal-foot"><ShieldCheck/> No orders are placed. Analysis only.</div></section>
+        <section className="panel signal-panel"><div className="panel-head"><div><h2><Zap/> AI signal analysis</h2><small>Rule-based technical confluence</small></div><span className="beta">BETA</span></div><div className={'signal-box '+signal.toLowerCase()}><div className="signal-top"><span>MARKET BIAS</span><span className="signal-dot"/></div><div className="signal-word">{signal}</div><p>{signal==='WAIT'?'Conditions are mixed. Wait for stronger confirmation.':signal==='LONG'?'Bullish momentum alignment detected. Look for a confirmed entry.':'Bearish momentum alignment detected. Look for a confirmed entry.'}</p></div><div className="confidence"><div><span>Confluence score</span><b>{score||'—'}<small>/100</small></b></div><div className="meter"><i style={{width:score+'%'}}/></div><small className="disclaimer">Heuristic score — not a probability of profit.</small></div><div className="levels"><div><span>{displayTrade?'ACTIVE '+displayTrade.side+' · '+displayTrade.symbol:'Selected market entry'}</span><b>{displayTrade?fmt(displayTrade.entry):(last?fmt(last):'—')}</b></div><div><span>Stop loss</span><b className="red">{displayTrade?fmt(displayTrade.sl):'Await confirmation'}</b></div><div><span>Take profit 1 / 2 / 3</span><b className="green">{displayTrade?[displayTrade.tp1,displayTrade.tp2,displayTrade.tp3].map(fmt).join(' / '):'Await confirmation'}</b></div><div><span>Trade status · ${activeTradeCount} active across coins</span><b>{displayTrade?'ACTIVE · '+displayTrade.frame:'No active trade for this coin'}</b></div></div><div className="signal-foot"><ShieldCheck/> No orders are placed. Analysis only.</div></section>
         <section className="panel indicators"><div className="panel-head"><div><h2><Gauge/> Technical indicators</h2><small>Calculated from selected timeframe</small></div></div><div className="indicator-grid"><div><small>RSI (14)</small><b>{ind?ind.rsi.toFixed(1):'—'}</b><span className={ind?(ind.rsi>70?'red':ind.rsi<30?'green':'neutral'):'neutral'}>{ind?(ind.rsi>70?'Overbought':ind.rsi<30?'Oversold':'Neutral'):'Waiting for data'}</span></div><div><small>EMA 9</small><b>{ind?fmt(ind.e9):'—'}</b><span>Short-term trend</span></div><div><small>EMA 21</small><b>{ind?fmt(ind.e21):'—'}</b><span>Trend direction</span></div><div><small>EMA 50</small><b>{ind?fmt(ind.e50):'—'}</b><span>Market structure</span></div></div></section>
         <section className="panel watch-panel"><div className="panel-head"><div><h2><TrendingUp/> Market watch</h2><small>Top 50 USDT perpetual pairs · 24h volume ranking</small></div><div className="searchbox"><Search/><input placeholder="Search any pair" value={query} onChange={e=>setQuery(e.target.value)}/></div></div><div className="table"><div className="table-row table-head"><span>CONTRACT</span><span>LAST PRICE</span><span>24H CHANGE</span></div>{filtered.map(t=><button className="table-row" key={t.symbol} onClick={()=>setSymbol(t.symbol)}><span className="table-coin">{t.symbol.replace('USDT','')} <small>USDT</small></span><b>{fmt(t.lastPrice)}</b><strong className={+t.priceChangePercent>=0?'green':'red'}>{+t.priceChangePercent>=0?'+':''}{(+t.priceChangePercent).toFixed(2)}%</strong></button>)}</div></section>
       </div>
