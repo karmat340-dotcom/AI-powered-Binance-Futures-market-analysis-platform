@@ -48,23 +48,28 @@ export async function scanMarkets(tickers, options = {}) {
     .slice(0, limit);
   const tasks = candidates.map(ticker => async () => {
     try {
-      const [raw15m, raw1h] = await Promise.all([
+      const [raw5m, raw15m, raw1h] = await Promise.all([
+        fetchFrame(ticker.symbol, '5m'),
         fetchFrame(ticker.symbol, '15m'),
         fetchFrame(ticker.symbol, '1h')
       ]);
       const price = Number(ticker.lastPrice);
-      const shortFrame = analyseCandles(raw15m, price);
-      const longFrame = analyseCandles(raw1h, price);
-      if (!shortFrame || !longFrame || shortFrame.side === 'WAIT' || shortFrame.side !== longFrame.side) return null;
+      const frame5m = analyseCandles(raw5m, price);
+      const frame15m = analyseCandles(raw15m, price);
+      const frame1h = analyseCandles(raw1h, price);
+      const frames = [frame5m, frame15m, frame1h];
+      if (frames.some(frame => !frame || frame.side === 'WAIT')) return null;
+      if (!frames.every(frame => frame.side === frames[0].side)) return null;
       return {
         symbol: ticker.symbol,
-        side: shortFrame.side,
-        score: Math.round((shortFrame.score + longFrame.score) / 2),
+        side: frames[0].side,
+        score: Math.round(frames.reduce((total, frame) => total + frame.score, 0) / frames.length),
         price,
         change: Number(ticker.priceChangePercent),
         volume: Number(ticker.quoteVolume),
-        rsi15m: shortFrame.rsi,
-        rsi1h: longFrame.rsi,
+        rsi5m: frame5m.rsi,
+        rsi15m: frame15m.rsi,
+        rsi1h: frame1h.rsi,
         confirmedAt: new Date().toISOString()
       };
     } catch {
