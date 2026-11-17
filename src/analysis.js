@@ -80,3 +80,34 @@ export function analyseMarket(raw, livePrice) {
     reasons, volumeRatio, atr
   };
 }
+
+export function buildTradeLevels(raw, side, entry) {
+  const candles = (raw || []).map(candleParts).slice(0, -1);
+  if (candles.length < 20 || !Number.isFinite(entry) || entry <= 0) return null;
+  const recent = candles.slice(-14);
+  const atr = recent.reduce((sum, c, i) => {
+    const prev = candles[candles.length - recent.length + i - 1]?.close;
+    const tr = prev == null ? c.high - c.low : Math.max(c.high-c.low, Math.abs(c.high-prev), Math.abs(c.low-prev));
+    return sum + tr;
+  }, 0) / recent.length;
+  if (!Number.isFinite(atr) || atr <= 0) return null;
+  const structure = candles.slice(-21, -1);
+  const swingLow = Math.min(...structure.map(c => c.low));
+  const swingHigh = Math.max(...structure.map(c => c.high));
+  const buffer = atr * 0.15;
+  const isLong = side === 'LONG';
+  const structureDistance = isLong ? entry - swingLow + buffer : swingHigh - entry + buffer;
+  const risk = Math.min(atr * 2.5, Math.max(atr * 1.5, structureDistance));
+  const direction = isLong ? 1 : -1;
+  return {
+    sl: entry - direction * risk,
+    tp1: entry + direction * risk * 1.5,
+    tp2: entry + direction * risk * 2,
+    tp3: entry + direction * risk * 3,
+    riskDistance: risk,
+    atr,
+    stopDistancePercent: risk / entry * 100,
+    stopMethod: 'ATR + recent swing structure',
+    riskReward: { tp1: '1:1.5', tp2: '1:2', tp3: '1:3' }
+  };
+}
