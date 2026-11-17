@@ -85,7 +85,9 @@ export default function App(){
     }catch{return {}}
   });
   const [loadedKey,setLoadedKey]=useState('');
-  const [scanResults,setScanResults]=useState([]);
+  const [scannerTrades,setScannerTrades]=useState(()=>{
+    try{return JSON.parse(localStorage.getItem('tradeai-scanner-trades')||'{}')}catch{return {}}
+  });
   const [scannerBusy,setScannerBusy]=useState(false);
   const [scannerError,setScannerError]=useState('');
   const [scanUpdated,setScanUpdated]=useState('');
@@ -123,7 +125,21 @@ export default function App(){
       setScannerError('');
       try{
         const results=await scanMarkets(current,{limit:40});
-        if(!cancelled){setScanResults(results);setScanUpdated(new Date().toLocaleTimeString())}
+        if(!cancelled){
+          setScannerTrades(existing=>{
+            const next={...existing};
+            results.forEach(item=>{
+              if(next[item.symbol])return;
+              const key='tradeai-scanner-last-signal-'+item.symbol;
+              if(localStorage.getItem(key)===item.side)return;
+              next[item.symbol]={...item,id:Date.now()+'-'+item.symbol,status:'ACTIVE',openedAt:new Date().toISOString()};
+              localStorage.setItem(key,item.side);
+            });
+            localStorage.setItem('tradeai-scanner-trades',JSON.stringify(next));
+            return next;
+          });
+          setScanUpdated(new Date().toLocaleTimeString());
+        }
       }catch(e){
         if(!cancelled)setScannerError('Scanner temporarily unavailable. Existing market data is unaffected.');
       }finally{
@@ -140,6 +156,26 @@ export default function App(){
     const interval=setInterval(runScan,90000);
     return ()=>{cancelled=true;clearInterval(first);clearInterval(interval)};
   },[]);
+  useEffect(()=>{
+    if(!tickers.length)return;
+    setScannerTrades(current=>{
+      let changed=false;
+      const next={...current};
+      Object.entries(current).forEach(([tradeSymbol,trade])=>{
+        const market=tickers.find(t=>t.symbol===tradeSymbol);
+        const price=Number(market?.lastPrice);
+        if(!price)return;
+        const hitSL=trade.side==='LONG'?price<=trade.sl:price>=trade.sl;
+        const hitTP3=trade.side==='LONG'?price>=trade.tp3:price<=trade.tp3;
+        if(hitSL||hitTP3){
+          delete next[tradeSymbol];
+          changed=true;
+        }
+      });
+      if(changed)localStorage.setItem('tradeai-scanner-trades',JSON.stringify(next));
+      return changed?next:current;
+    });
+  },[tickers]);
   const dataReady=loadedKey===symbol+'|'+frame;
   const ticker=tickers.find(x=>x.symbol===symbol),closes=dataReady?bars.map(x=>x.close):[],last=Number(ticker?.lastPrice)||closes.at(-1)||0;
   const ind=useMemo(()=>closes.length>30?{e9:ema(closes.slice(-60),9),e21:ema(closes.slice(-80),21),e50:ema(closes.slice(-120),50),rsi:rsi(closes)}:null,[bars]);
@@ -209,8 +245,8 @@ export default function App(){
         <section className="panel scanner-panel"><div className="panel-head"><div><h2><Zap/> Automatic market scanner</h2><small>Top 40 USDT pairs · 5m + 15m + 1h trend agreement</small></div><span className="beta">{scannerBusy?'SCANNING':'AUTO SCAN'}</span></div>
           <div className="scanner-meta"><span>{scannerBusy?'Checking market setups…':scanResults.length+' aligned setups found'}</span><span>Updated {scanUpdated||'—'} · refreshes every 90s</span></div>
           {scannerError&&<div className="error">{scannerError}</div>}
-          {scanResults.length>0?<div className="scanner-list">{scanResults.map(item=><button className="scanner-row" key={item.symbol} onClick={()=>setSymbol(item.symbol)}><span className="scanner-pair">{item.symbol.replace('USDT','')}<small>USDT PERP</small></span><b className={item.side==='LONG'?'green':'red'}>{item.side}</b><span className="scanner-score">Score <b>{item.score}/100</b></span><span className="scanner-price">{fmt(item.price)}</span><span className="scanner-confirm">5m + 15m + 1h ✓</span></button>)}</div>:<div className="scanner-empty">{scannerBusy?'Scanning the highest-volume contracts. This may take a little while.':'No matching 5m + 15m + 1h setups right now. WAIT is a valid result.'}</div>}
-          <div className="scanner-foot">Signals are screening results, not trade instructions. No positions or orders are opened automatically.</div>
+          {Object.keys(scannerTrades).length>0?<div className="scanner-list">{Object.values(scannerTrades).map(item=><button className="scanner-row scanner-trade-row" key={item.id} onClick={()=>setSymbol(item.symbol)}><span className="scanner-pair">{item.symbol.replace('USDT','')}<small>USDT PERP</small></span><b className={item.side==='LONG'?'green':'red'}>{item.side}</b><span className="scanner-score">Score <b>{item.score}/100</b></span><span className="scanner-price">Entry {fmt(item.entry)}</span><span className="scanner-confirm">5m + 15m + 1h ✓</span><span className="scanner-levels"><i>SL {fmt(item.sl)}</i><i>TP1 {fmt(item.tp1)}</i><i>TP2 {fmt(item.tp2)}</i><i>TP3 {fmt(item.tp3)}</i></span></button>)}</div>:<div className="scanner-empty">{scannerBusy?'Scanning the highest-volume contracts. This may take a little while.':'No active scanner setups. New confirmed setups will appear here.'}</div>}
+          <div className="scanner-foot">Active setups disappear when price reaches SL or TP3. TP levels use 1R / 2R / 3R targets. Analysis only; no orders are placed.</div>
         </section>
         <section className="panel watch-panel"><div className="panel-head"><div><h2><TrendingUp/> Market watch</h2><small>Top 50 USDT perpetual pairs · 24h volume ranking</small></div><div className="searchbox"><Search/><input placeholder="Search any pair" value={query} onChange={e=>setQuery(e.target.value)}/></div></div><div className="table"><div className="table-row table-head"><span>CONTRACT</span><span>LAST PRICE</span><span>24H CHANGE</span></div>{filtered.map(t=><button className="table-row" key={t.symbol} onClick={()=>setSymbol(t.symbol)}><span className="table-coin">{t.symbol.replace('USDT','')} <small>USDT</small></span><b>{fmt(t.lastPrice)}</b><strong className={+t.priceChangePercent>=0?'green':'red'}>{+t.priceChangePercent>=0?'+':''}{(+t.priceChangePercent).toFixed(2)}%</strong></button>)}</div></section>
       </div>
