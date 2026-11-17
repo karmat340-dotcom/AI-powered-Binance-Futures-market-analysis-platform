@@ -27,3 +27,10 @@
 .scanner-empty{padding:18px;border:1px dashed #293a50;border-radius:6px;color:#8494a9;text-align:center;font-size:10px}
 .scanner-foot{margin-top:11px;color:#63758c;font-size:8px}
 @media(max-width:760px){.scanner-list{grid-template-columns:1fr}.scanner-meta{flex-direction:column;gap:5px}.scanner-row{grid-template-columns:1fr 52px 76px 1fr}.scanner-confirm{display:none}}
+
+.scanner-trade-row{grid-template-columns:1fr 55px 80px 1fr 75px}
+.scanner-levels{grid-column:1/-1;display:flex;gap:15px;flex-wrap:wrap;padding-top:5px;border-top:1px solid #1c2b40;color:#93a5bb;font:9px 'DM Mono'}
+.scanner-levels i{font-style:normal}
+.scanner-levels i:first-child{color:#f07783}
+.scanner-levels i:not(:first-child){color:#45d6a5}
+@media(max-width:760px){.scanner-trade-row{grid-template-columns:1fr 48px 70px 1fr}.scanner-levels{gap:9px}}
