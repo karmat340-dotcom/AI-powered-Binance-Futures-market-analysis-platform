@@ -1,4 +1,4 @@
-import { analyseMarket } from './analysis.js';
+import { analyseMarket, buildTradeLevels } from './analysis.js';
 
 const API = 'https://fapi.binance.com';
 
@@ -29,16 +29,11 @@ export async function scanMarkets(tickers, options = {}) {
       ];
       if (frames.some(frame => !frame || frame.side === 'WAIT')) return null;
       if (!frames.every(frame => frame.side === frames[0].side)) return null;
-      const recentRanges = raw5m.slice(-14).map(c => Number(c[2]) - Number(c[3]));
-      const averageRange = recentRanges.reduce((sum, value) => sum + value, 0) / Math.max(1, recentRanges.length);
-      const risk = Math.max(price * 0.003, averageRange * 1.5);
-      const direction = frames[0].side === 'LONG' ? 1 : -1;
+      const levels = buildTradeLevels(raw5m, frames[0].side, price);
+      if (!levels) return null;
       return {
         symbol: ticker.symbol, side: frames[0].side, entry: price,
-        sl: price - direction * risk,
-        tp1: price + direction * risk,
-        tp2: price + direction * risk * 2,
-        tp3: price + direction * risk * 3,
+        ...levels,
         score: Math.round(frames.reduce((total, frame) => total + frame.score, 0) / frames.length),
         trend: frames[2].trend, momentum: frames[0].momentum,
         confirmation: 'CONFIRMED', consolidation: 'NO', falseEntry: 'CLEAR',
