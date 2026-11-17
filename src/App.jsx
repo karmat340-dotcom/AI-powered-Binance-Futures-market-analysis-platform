@@ -94,7 +94,8 @@ export default function App(){
       return Object.fromEntries(Object.entries(saved).filter(([,trade])=>trade.analysisVersion===2));
     }catch{return {}}
   });
-  const [scannerBusy,setScannerBusy]=useState(false);\n  const [earlySetups,setEarlySetups]=useState([]);
+  const [scannerBusy,setScannerBusy]=useState(false);
+  const [earlySetups,setEarlySetups]=useState([]);
   const [leverage,setLeverage]=useState(()=>localStorage.getItem('tradeai-leverage')||'5');
   useEffect(()=>{localStorage.setItem('tradeai-leverage',leverage)},[leverage]);
   const [scannerError,setScannerError]=useState('');
@@ -266,7 +267,8 @@ export default function App(){
     if(previous===signal)return;
     setActiveTrades(current=>{
       if(current[symbol])return current;
-      const trade=makeTrade(signal,symbol,frame,last,bars);\n      return trade?{...current,[symbol]:trade}:current;
+      const trade=makeTrade(signal,symbol,frame,last,bars);
+      return trade?{...current,[symbol]:trade}:current;
     });
   },[signal,activeTrades,symbol,frame,last,bars,dataReady]);
   useEffect(()=>{
