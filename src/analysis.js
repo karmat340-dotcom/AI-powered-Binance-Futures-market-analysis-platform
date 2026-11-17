@@ -65,6 +65,15 @@ export function analyseMarket(raw, livePrice) {
   const longReady = bullishTrend && bullishMomentum && !consolidation && longBreakout && confirmation && !falseEntry;
   const shortReady = bearishTrend && bearishMomentum && !consolidation && shortBreakout && confirmation && !falseEntry;
   const side = longReady ? 'LONG' : shortReady ? 'SHORT' : 'WAIT';
+  // Early setups identify directional conditions before the strict breakout trigger.
+  // They are watch candidates only, never confirmed entries.
+  const earlyLong = !falseEntry && bullishMomentum &&
+    (bullishTrend || (longBreakout && trend !== 'DOWNTREND'));
+  const earlyShort = !falseEntry && bearishMomentum &&
+    (bearishTrend || (shortBreakout && trend !== 'UPTREND'));
+  const earlySide = side !== 'WAIT' ? null :
+    earlyLong && !earlyShort ? 'LONG' :
+    earlyShort && !earlyLong ? 'SHORT' : null;
   const score = Math.min(98, Math.round(
     (trend !== 'MIXED' ? 20 : 0) +
     (momentum !== 'WEAK / MIXED' ? 20 : 0) +
@@ -73,7 +82,7 @@ export function analyseMarket(raw, livePrice) {
     (!falseEntry ? 20 : 0)
   ));
   return {
-    side, score, rsi:strength, trend, momentum,
+    side, earlySide, score, rsi:strength, trend, momentum,
     confirmation: confirmation ? 'CONFIRMED' : 'WAITING',
     consolidation: consolidation ? 'YES' : 'NO',
     falseEntry: falseEntry ? 'BLOCKED' : 'CLEAR',
