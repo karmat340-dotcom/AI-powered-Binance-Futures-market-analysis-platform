@@ -21,19 +21,22 @@ function candleParts(c) {
 export function analyseMarket(raw, livePrice) {
   if (!raw || raw.length < 60) return null;
   const candles = raw.map(candleParts);
-  const closes = candles.map(c => c.close);
+  // Use only fully closed candles for confirmation to reduce intrabar false signals.
+  const completed = candles.slice(0, -1);
+  if (completed.length < 60) return null;
+  const closes = completed.map(c => c.close);
   const price = Number(livePrice) || closes.at(-1);
   const e9 = ema(closes.slice(-60), 9), e21 = ema(closes.slice(-60), 21), e50 = ema(closes.slice(-80), 50);
   if (!e9 || !e21 || !e50 || !price) return null;
   const strength = rsi(closes);
-  const recent = candles.slice(-14);
+  const recent = completed.slice(-14);
   const atr = recent.reduce((s,c)=>s+(c.high-c.low),0)/recent.length;
-  const recent12 = candles.slice(-13,-1);
+  const recent12 = completed.slice(-13,-1);
   const rangeHigh = Math.max(...recent12.map(c=>c.high));
   const rangeLow = Math.min(...recent12.map(c=>c.low));
   const range12 = rangeHigh - rangeLow;
-  const avgVolume = candles.slice(-21,-1).reduce((s,c)=>s+c.volume,0)/20;
-  const last = candles.at(-1);
+  const avgVolume = completed.slice(-21,-1).reduce((s,c)=>s+c.volume,0)/20;
+  const last = completed.at(-1);
   const volumeRatio = avgVolume > 0 ? last.volume/avgVolume : 1;
   const body = Math.abs(last.close-last.open);
   const fullRange = Math.max(last.high-last.low, 1e-12);
