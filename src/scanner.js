@@ -33,18 +33,29 @@ export async function scanMarkets(tickers, options = {}) {
       let side = confirmed ? frames[0].side : null;
       let status = 'CONFIRMED';
       let missing = [];
+      let caution = false;
       if (!confirmed) {
-        const earlySides = frames.map(frame => frame.earlySide).filter(Boolean);
-        const longCount = earlySides.filter(value => value === 'LONG').length;
-        const shortCount = earlySides.filter(value => value === 'SHORT').length;
+        // Broader directional votes are for watch-only candidates, never confirmed entries.
+        const votes = frames.map(frame => {
+          if (frame.trend === 'UPTREND' && frame.momentum !== 'BEARISH') return 'LONG';
+          if (frame.trend === 'DOWNTREND' && frame.momentum !== 'BULLISH') return 'SHORT';
+          if (frame.momentum === 'BULLISH' && frame.trend !== 'DOWNTREND') return 'LONG';
+          if (frame.momentum === 'BEARISH' && frame.trend !== 'UPTREND') return 'SHORT';
+          return null;
+        });
+        const longCount = votes.filter(value => value === 'LONG').length;
+        const shortCount = votes.filter(value => value === 'SHORT').length;
         side = longCount >= 2 ? 'LONG' : shortCount >= 2 ? 'SHORT' : null;
-        // Early candidates need directional agreement on at least two timeframes,
-        // a useful confluence score, and no false-entry warning on any timeframe.
-        if (!side || score < 45 || frames.some(frame => frame.falseEntry === 'BLOCKED')) return null;
+        if (!side || score < 35) return null;
         status = 'EARLY';
-        missing = frames.flatMap((frame, index) =>
-          frame.side === 'WAIT' ? [`${['5m','15m','1h'][index]}: ${frame.reasons?.[0] || 'confirmation pending'}`] : []
-        );
+        caution = frames.some(frame => frame.falseEntry === 'BLOCKED');
+        missing = frames.flatMap((frame, index) => {
+          const notes = [];
+          if (votes[index] !== side) notes.push(['5m','15m','1h'][index] + ': directional agreement pending');
+          if (frame.reasons?.length) notes.push(['5m','15m','1h'][index] + ': ' + frame.reasons[0]);
+          return notes;
+        });
+        if (caution) missing.unshift('Caution: a timeframe triggered a false-entry filter');
       }
       const levels = buildTradeLevels(raw5m, side, price);
       if (!levels) return null;
@@ -55,7 +66,7 @@ export async function scanMarkets(tickers, options = {}) {
         trend: frames[2].trend, momentum: frames[0].momentum,
         confirmation: confirmed ? 'CONFIRMED' : 'EARLY · NOT CONFIRMED',
         consolidation: frames.some(frame => frame.consolidation === 'YES') ? 'YES' : 'NO',
-        falseEntry: 'CLEAR',
+        falseEntry: caution ? 'CAUTION' : 'CLEAR',
         price, change: Number(ticker.priceChangePercent),
         volume: Number(ticker.quoteVolume),
         rsi5m: frames[0].rsi, rsi15m: frames[1].rsi, rsi1h: frames[2].rsi,
