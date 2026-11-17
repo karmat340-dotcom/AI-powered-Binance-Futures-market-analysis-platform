@@ -91,7 +91,10 @@ export default function App(){
   });
   const [loadedKey,setLoadedKey]=useState('');
   const [scannerTrades,setScannerTrades]=useState(()=>{
-    try{return JSON.parse(localStorage.getItem('tradeai-scanner-trades')||'{}')}catch{return {}}
+    try{
+      const saved=JSON.parse(localStorage.getItem('tradeai-scanner-trades')||'{}');
+      return Object.fromEntries(Object.entries(saved).filter(([,trade])=>trade.analysisVersion===2));
+    }catch{return {}}
   });
   const [scannerBusy,setScannerBusy]=useState(false);
   const [leverage,setLeverage]=useState(()=>localStorage.getItem('tradeai-leverage')||'5');
@@ -140,7 +143,7 @@ export default function App(){
               if(next[item.symbol])return;
               const key='tradeai-scanner-last-signal-'+item.symbol;
               if(localStorage.getItem(key)===item.side)return;
-              next[item.symbol]={...item,id:Date.now()+'-'+item.symbol,status:'ACTIVE',openedAt:new Date().toISOString()};
+              next[item.symbol]={...item,analysisVersion:2,id:Date.now()+'-'+item.symbol,status:'ACTIVE',openedAt:new Date().toISOString()};
               localStorage.setItem(key,item.side);
             });
             localStorage.setItem('tradeai-scanner-trades',JSON.stringify(next));
