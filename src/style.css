@@ -42,3 +42,8 @@
 .scanner-margin-roi i{font-style:normal;color:#8194aa;margin-right:3px}
 .scanner-margin-roi b{font-weight:700}
 @media(max-width:760px){.scanner-margin-roi{gap:8px}}
+
+.analysis-checks{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:11px}
+.analysis-checks>div{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 10px;background:#101d2d;border:1px solid #1d2c40;border-radius:5px;font-size:9px;color:#8b9bb0}
+.analysis-checks b{font:600 8px 'DM Mono';text-align:right;color:#dce5f1}
+@media(max-width:420px){.analysis-checks{grid-template-columns:1fr}}
