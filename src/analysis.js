@@ -86,7 +86,17 @@ export function analyseMarket(raw, livePrice) {
     confirmation: confirmation ? 'CONFIRMED' : 'WAITING',
     consolidation: consolidation ? 'YES' : 'NO',
     falseEntry: falseEntry ? 'BLOCKED' : 'CLEAR',
-    reasons, volumeRatio, atr
+    reasons, volumeRatio, atr,
+    checks: {
+      trend: trend === (bullishMomentum ? 'UPTREND' : bearishMomentum ? 'DOWNTREND' : 'MIXED'),
+      trendAligned: bullishTrend || bearishTrend,
+      momentumAligned: bullishMomentum || bearishMomentum,
+      breakout: longBreakout || shortBreakout,
+      candleBody: bodyRatio >= 0.4,
+      volume: volumeRatio >= 1.05,
+      consolidation,
+      falseEntry
+    }
   };
 }
 
