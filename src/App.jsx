@@ -77,7 +77,11 @@ export default function App(){
   const [symbol,setSymbol]=useState('BTCUSDT'),[frame,setFrame]=useState('15m'),[bars,setBars]=useState([]),[tickers,setTickers]=useState([]),[busy,setBusy]=useState(true),[error,setError]=useState(''),[query,setQuery]=useState(''),[updated,setUpdated]=useState('');
   const [activeTrade,setActiveTrade]=useState(readSavedTrade);
   const [armed,setArmed]=useState(()=>localStorage.getItem('tradeai-armed')!=='false');
+  const [loadedKey,setLoadedKey]=useState('');
+  const requestRef=useRef(0);
   async function load(){
+    const requestId=++requestRef.current;
+    const requestKey=symbol+'|'+frame;
     setBusy(true);setError('');
     try{
       const responses=await Promise.all([
@@ -86,14 +90,17 @@ export default function App(){
       ]);
       if(!responses[0].ok||!responses[1].ok)throw Error('Binance market data is temporarily unavailable.');
       const data=await Promise.all(responses.map(x=>x.json()));
+      if(requestId!==requestRef.current)return;
       setBars(data[0].map(x=>({time:x[0],open:+x[1],high:+x[2],low:+x[3],close:+x[4]})));
       setTickers(data[1].filter(x=>x.symbol.endsWith('USDT')).sort((a,b)=>+b.quoteVolume- +a.quoteVolume));
+      setLoadedKey(requestKey);
       setUpdated(new Date().toLocaleTimeString());
-    }catch(e){setError(e.message+' Check your connection and refresh.')}
-    finally{setBusy(false)}
+    }catch(e){if(requestId===requestRef.current)setError(e.message+' Check your connection and refresh.')}
+    finally{if(requestId===requestRef.current)setBusy(false)}
   }
-  useEffect(()=>{load();const id=setInterval(load,20000);return()=>clearInterval(id)},[symbol,frame]);
-  const ticker=tickers.find(x=>x.symbol===symbol),closes=bars.map(x=>x.close),last=Number(ticker?.lastPrice)||closes.at(-1)||0;
+  useEffect(()=>{setBars([]);setLoadedKey('');load();const id=setInterval(load,20000);return()=>{clearInterval(id);requestRef.current++}},[symbol,frame]);
+  const dataReady=loadedKey===symbol+'|'+frame;
+  const ticker=tickers.find(x=>x.symbol===symbol),closes=dataReady?bars.map(x=>x.close):[],last=Number(ticker?.lastPrice)||closes.at(-1)||0;
   const ind=useMemo(()=>closes.length>30?{e9:ema(closes.slice(-60),9),e21:ema(closes.slice(-80),21),e50:ema(closes.slice(-120),50),rsi:rsi(closes)}:null,[bars]);
   const signal=ind?(last>ind.e9&&ind.e9>ind.e21&&ind.rsi<70?'LONG':last<ind.e9&&ind.e9<ind.e21&&ind.rsi>30?'SHORT':'WAIT'):'WAIT';
   const score=ind?Math.min(92,Math.round(48+Math.abs(ind.e9-ind.e21)/Math.max(last,1e-9)*15000+Math.abs(ind.rsi-50)*.35)):0;
@@ -116,10 +123,10 @@ export default function App(){
   },[tickers,activeTrade]);
   useEffect(()=>{
     if(signal==='WAIT'&&!activeTrade&&!armed)setArmed(true);
-    if(!activeTrade&&armed&&signal!=='WAIT'&&last>0&&bars.length>30){
+    if(dataReady&&!activeTrade&&armed&&signal!=='WAIT'&&last>0&&bars.length>30){
       setActiveTrade(makeTrade(signal,symbol,frame,last,bars));
     }
-  },[signal,activeTrade,armed,last,symbol,frame,bars]);
+  },[signal,activeTrade,armed,last,symbol,frame,bars,dataReady]);
   const displayTrade=activeTrade?.symbol===symbol?activeTrade:null;
   const otherActiveTrade=activeTrade&&activeTrade.symbol!==symbol?activeTrade:null;
   const filtered=tickers.filter(x=>x.symbol.includes(query.toUpperCase())).slice(0,50);
