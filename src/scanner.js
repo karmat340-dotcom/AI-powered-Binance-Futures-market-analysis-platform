@@ -49,13 +49,21 @@ export async function scanMarkets(tickers, options = {}) {
         if (!side || score < 35) return null;
         status = 'EARLY';
         caution = frames.some(frame => frame.falseEntry === 'BLOCKED');
-        missing = frames.flatMap((frame, index) => {
-          const notes = [];
-          if (votes[index] !== side) notes.push(['5m','15m','1h'][index] + ': directional agreement pending');
-          if (frame.reasons?.length) notes.push(['5m','15m','1h'][index] + ': ' + frame.reasons[0]);
-          return notes;
+        missing = [];
+        frames.forEach((frame, index) => {
+          const tf = ['5m','15m','1h'][index];
+          const checks = frame.checks || {};
+          if (votes[index] !== side) missing.push(tf + ': direction does not yet align');
+          if (!checks.trendAligned) missing.push(tf + ': trend alignment needed');
+          if (!checks.momentumAligned) missing.push(tf + ': momentum confirmation needed');
+          if (!checks.breakout) missing.push(tf + ': breakout not confirmed');
+          if (!checks.candleBody) missing.push(tf + ': stronger candle body needed');
+          if (!checks.volume) missing.push(tf + ': volume confirmation needed');
+          if (checks.consolidation) missing.push(tf + ': price still consolidating');
+          if (checks.falseEntry) missing.push(tf + ': false-entry filter warning');
         });
-        if (caution) missing.unshift('Caution: a timeframe triggered a false-entry filter');
+        missing = [...new Set(missing)];
+        if (caution) missing.unshift('Caution: at least one timeframe triggered a false-entry filter');
       }
       const levels = buildTradeLevels(raw5m, side, price);
       if (!levels) return null;
