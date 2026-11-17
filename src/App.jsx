@@ -1,6 +1,7 @@
 import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {Activity,Bell,CandlestickChart,Crosshair,Gauge,Layers3,RefreshCw,Search,ShieldCheck,Star,TrendingUp,Zap} from 'lucide-react';
 import {createChart,CandlestickSeries,ColorType,CrosshairMode} from 'lightweight-charts';
+import {scanMarkets} from './scanner.js';
 
 const API='https://fapi.binance.com';
 const FRAMES=['1m','3m','5m','15m','30m','1h','2h','4h','6h','8h','12h','1d','3d','1w','1M'];
@@ -84,6 +85,12 @@ export default function App(){
     }catch{return {}}
   });
   const [loadedKey,setLoadedKey]=useState('');
+  const [scanResults,setScanResults]=useState([]);
+  const [scannerBusy,setScannerBusy]=useState(false);
+  const [scannerError,setScannerError]=useState('');
+  const [scanUpdated,setScanUpdated]=useState('');
+  const tickerRef=useRef([]);
+  const scannerStartedRef=useRef(false);
   const requestRef=useRef(0);
   async function load(){
     const requestId=++requestRef.current;
@@ -105,6 +112,34 @@ export default function App(){
     finally{if(requestId===requestRef.current)setBusy(false)}
   }
   useEffect(()=>{setBars([]);setLoadedKey('');load();const id=setInterval(load,20000);return()=>{clearInterval(id);requestRef.current++}},[symbol,frame]);
+  useEffect(()=>{tickerRef.current=tickers},[tickers]);
+  useEffect(()=>{
+    let cancelled=false, running=false;
+    const runScan=async()=>{
+      const current=tickerRef.current;
+      if(!current.length||running)return;
+      running=true;
+      setScannerBusy(true);
+      setScannerError('');
+      try{
+        const results=await scanMarkets(current,{limit:40});
+        if(!cancelled){setScanResults(results);setScanUpdated(new Date().toLocaleTimeString())}
+      }catch(e){
+        if(!cancelled)setScannerError('Scanner temporarily unavailable. Existing market data is unaffected.');
+      }finally{
+        running=false;
+        if(!cancelled)setScannerBusy(false);
+      }
+    };
+    const first=setInterval(()=>{
+      if(!scannerStartedRef.current&&tickerRef.current.length){
+        scannerStartedRef.current=true;
+        runScan();
+      }
+    },1500);
+    const interval=setInterval(runScan,90000);
+    return ()=>{cancelled=true;clearInterval(first);clearInterval(interval)};
+  },[]);
   const dataReady=loadedKey===symbol+'|'+frame;
   const ticker=tickers.find(x=>x.symbol===symbol),closes=dataReady?bars.map(x=>x.close):[],last=Number(ticker?.lastPrice)||closes.at(-1)||0;
   const ind=useMemo(()=>closes.length>30?{e9:ema(closes.slice(-60),9),e21:ema(closes.slice(-80),21),e50:ema(closes.slice(-120),50),rsi:rsi(closes)}:null,[bars]);
@@ -171,6 +206,12 @@ export default function App(){
         </section>
         <section className="panel signal-panel"><div className="panel-head"><div><h2><Zap/> AI signal analysis</h2><small>Rule-based technical confluence</small></div><span className="beta">BETA</span></div><div className={'signal-box '+signal.toLowerCase()}><div className="signal-top"><span>MARKET BIAS</span><span className="signal-dot"/></div><div className="signal-word">{signal}</div><p>{signal==='WAIT'?'Conditions are mixed. Wait for stronger confirmation.':signal==='LONG'?'Bullish momentum alignment detected. Look for a confirmed entry.':'Bearish momentum alignment detected. Look for a confirmed entry.'}</p></div>{signalConflict&&<div className="trade-warning"><b>⚠ SIGNAL CONFLICT</b><span>Active {displayTrade.side} trade, but the latest market bias is {signal}. Review the position; no automatic action is taken.</span></div>}<div className="confidence"><div><span>Confluence score</span><b>{score||'—'}<small>/100</small></b></div><div className="meter"><i style={{width:score+'%'}}/></div><small className="disclaimer">Heuristic score — not a probability of profit.</small></div><div className="levels"><div><span>{displayTrade?'ACTIVE '+displayTrade.side+' · '+displayTrade.symbol:'Selected market entry'}</span><b>{displayTrade?fmt(displayTrade.entry):(last?fmt(last):'—')}</b></div><div><span>Live P/L · {displayTrade?'since entry':'no active position'}</span><b className={tradePnl>=0?'green':'red'}>{displayTrade?(tradePnl>=0?'+':'')+tradePnl.toFixed(2)+'%':'—'}</b></div><div><span>Stop loss</span><b className="red">{displayTrade?fmt(displayTrade.sl):'Await confirmation'}</b></div><div><span>Take profit 1 / 2 / 3</span><b className="green">{displayTrade?[displayTrade.tp1,displayTrade.tp2,displayTrade.tp3].map(fmt).join(' / '):'Await confirmation'}</b></div><div><span>Trade status · ${activeTradeCount} active across coins</span><b>{displayTrade?'ACTIVE · '+displayTrade.frame:'No active trade for this coin'}</b></div></div><div className="signal-foot"><ShieldCheck/> No orders are placed. Analysis only.</div></section>
         <section className="panel indicators"><div className="panel-head"><div><h2><Gauge/> Technical indicators</h2><small>Calculated from selected timeframe</small></div></div><div className="indicator-grid"><div><small>RSI (14)</small><b>{ind?ind.rsi.toFixed(1):'—'}</b><span className={ind?(ind.rsi>70?'red':ind.rsi<30?'green':'neutral'):'neutral'}>{ind?(ind.rsi>70?'Overbought':ind.rsi<30?'Oversold':'Neutral'):'Waiting for data'}</span></div><div><small>EMA 9</small><b>{ind?fmt(ind.e9):'—'}</b><span>Short-term trend</span></div><div><small>EMA 21</small><b>{ind?fmt(ind.e21):'—'}</b><span>Trend direction</span></div><div><small>EMA 50</small><b>{ind?fmt(ind.e50):'—'}</b><span>Market structure</span></div></div></section>
+        <section className="panel scanner-panel"><div className="panel-head"><div><h2><Zap/> Automatic market scanner</h2><small>Top 40 USDT perpetual pairs · 15m + 1h trend agreement</small></div><span className="beta">{scannerBusy?'SCANNING':'AUTO SCAN'}</span></div>
+          <div className="scanner-meta"><span>{scannerBusy?'Checking market setups…':scanResults.length+' aligned setups found'}</span><span>Updated {scanUpdated||'—'} · refreshes every 90s</span></div>
+          {scannerError&&<div className="error">{scannerError}</div>}
+          {scanResults.length>0?<div className="scanner-list">{scanResults.map(item=><button className="scanner-row" key={item.symbol} onClick={()=>setSymbol(item.symbol)}><span className="scanner-pair">{item.symbol.replace('USDT','')}<small>USDT PERP</small></span><b className={item.side==='LONG'?'green':'red'}>{item.side}</b><span className="scanner-score">Score <b>{item.score}/100</b></span><span className="scanner-price">{fmt(item.price)}</span><span className="scanner-confirm">15m + 1h ✓</span></button>)}</div>:<div className="scanner-empty">{scannerBusy?'Scanning the highest-volume contracts. This may take a little while.':'No matching 15m + 1h setups right now. WAIT is a valid result.'}</div>}
+          <div className="scanner-foot">Signals are screening results, not trade instructions. No positions or orders are opened automatically.</div>
+        </section>
         <section className="panel watch-panel"><div className="panel-head"><div><h2><TrendingUp/> Market watch</h2><small>Top 50 USDT perpetual pairs · 24h volume ranking</small></div><div className="searchbox"><Search/><input placeholder="Search any pair" value={query} onChange={e=>setQuery(e.target.value)}/></div></div><div className="table"><div className="table-row table-head"><span>CONTRACT</span><span>LAST PRICE</span><span>24H CHANGE</span></div>{filtered.map(t=><button className="table-row" key={t.symbol} onClick={()=>setSymbol(t.symbol)}><span className="table-coin">{t.symbol.replace('USDT','')} <small>USDT</small></span><b>{fmt(t.lastPrice)}</b><strong className={+t.priceChangePercent>=0?'green':'red'}>{+t.priceChangePercent>=0?'+':''}{(+t.priceChangePercent).toFixed(2)}%</strong></button>)}</div></section>
       </div>
       <footer>TRADE AI <span>·</span> Binance public Futures market data <span>·</span> Educational use only. Not financial advice.</footer>
