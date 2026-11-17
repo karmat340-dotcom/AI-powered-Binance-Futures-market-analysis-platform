@@ -97,6 +97,7 @@ export default function App(){
   const [leverage,setLeverage]=useState(()=>localStorage.getItem('tradeai-leverage')||'5');
   useEffect(()=>{localStorage.setItem('tradeai-leverage',leverage)},[leverage]);
   const [scannerError,setScannerError]=useState('');
+  const [consensus,setConsensus]=useState(null);
   const [scanUpdated,setScanUpdated]=useState('');
   const tickerRef=useRef([]);
   const scannerStartedRef=useRef(false);
@@ -186,7 +187,50 @@ export default function App(){
   const dataReady=loadedKey===symbol+'|'+frame;
   const ticker=tickers.find(x=>x.symbol===symbol),closes=dataReady?bars.map(x=>x.close):[],last=Number(ticker?.lastPrice)||closes.at(-1)||0;
   const ind=useMemo(()=>closes.length>30?{e9:ema(closes.slice(-60),9),e21:ema(closes.slice(-80),21),e50:ema(closes.slice(-120),50),rsi:rsi(closes)}:null,[bars]);
-  const analysis=useMemo(()=>dataReady?analyseMarket(bars,last):null,[bars,last,dataReady]);
+  useEffect(()=>{
+    let cancelled=false, running=false;
+    const checkConsensus=async()=>{
+      if(running||!symbol)return;
+      running=true;
+      try{
+        const frames=await Promise.all(['5m','15m','1h'].map(async interval=>{
+          const response=await fetch(API+'/fapi/v1/klines?symbol='+symbol+'&interval='+interval+'&limit=100');
+          if(!response.ok)throw new Error('Unable to load multi-timeframe data');
+          return analyseMarket(await response.json(),last);
+        }));
+        if(cancelled)return;
+        const sides=frames.map(item=>item?.side||'WAIT');
+        const aligned=sides[0]!=='WAIT'&&sides.every(side=>side===sides[0]);
+        const side=aligned?sides[0]:'WAIT';
+        const reasons=[];
+        if(!aligned)reasons.push('5m, 15m and 1h do not all confirm the same direction');
+        frames.forEach((item,index)=>{
+          if(item?.reasons?.length&&sides[index]==='WAIT')reasons.push(['5m','15m','1h'][index]+': '+item.reasons[0]);
+        });
+        const representative=frames[1]||frames[0]||null;
+        setConsensus({
+          symbol,
+          analysis:representative?{
+            ...representative,
+            side,
+            score:Math.round(frames.reduce((sum,item)=>sum+(item?.score||0),0)/3),
+            trend:frames[2]?.trend||'MIXED',
+            momentum:frames[0]?.momentum||'WEAK / MIXED',
+            confirmation:aligned?'CONFIRMED':'WAITING',
+            consolidation:frames.some(item=>item?.consolidation==='YES')?'YES':'NO',
+            falseEntry:frames.some(item=>item?.falseEntry==='BLOCKED')?'BLOCKED':'CLEAR',
+            reasons
+          }:null
+        });
+      }catch{
+        if(!cancelled)setConsensus({symbol,analysis:null});
+      }finally{running=false}
+    };
+    checkConsensus();
+    const interval=setInterval(checkConsensus,20000);
+    return ()=>{cancelled=true;clearInterval(interval)};
+  },[symbol,last]);
+  const analysis=consensus?.symbol===symbol?consensus.analysis:null;
   const signal=analysis?.side||'WAIT';
   const score=analysis?.score||0;
   useEffect(()=>{localStorage.setItem('tradeai-active-trades',JSON.stringify(activeTrades))},[activeTrades]);
@@ -248,8 +292,8 @@ export default function App(){
           {bars.length>0?<PriceChart bars={bars} livePrice={last} symbol={symbol} frame={frame}/>:<div className="empty-chart">{busy?'Loading live candles…':'No chart data available'}</div>}
           <div className="chart-footer"><span><i className="pulse"/> {busy?'Updating market data':'Market data connected'}</span><span>Updated {updated||'—'}</span></div>{error&&<div className="error">{error}</div>}
         </section>
-        <section className="panel signal-panel"><div className="panel-head"><div><h2><Zap/> AI signal analysis</h2><small>Rule-based technical confluence</small></div><span className="beta">BETA</span></div><div className={'signal-box '+signal.toLowerCase()}><div className="signal-top"><span>MARKET BIAS</span><span className="signal-dot"/></div><div className="signal-word">{signal}</div><p>{signal==='WAIT'?'Conditions are mixed. Wait for stronger confirmation.':signal==='LONG'?'Bullish momentum alignment detected. Look for a confirmed entry.':'Bearish momentum alignment detected. Look for a confirmed entry.'}</p></div>{analysis&&<div className="analysis-checks"><div><span>Trend direction</span><b className={analysis.trend==='UPTREND'?'green':analysis.trend==='DOWNTREND'?'red':'neutral'}>{analysis.trend}</b></div><div><span>Momentum strength</span><b>{analysis.momentum}</b></div><div><span>Entry confirmation</span><b className={analysis.confirmation==='CONFIRMED'?'green':'neutral'}>{analysis.confirmation}</b></div><div><span>Consolidation</span><b className={analysis.consolidation==='YES'?'red':'green'}>{analysis.consolidation}</b></div><div><span>False-entry filter</span><b className={analysis.falseEntry==='CLEAR'?'green':'red'}>{analysis.falseEntry}</b></div><div><span>Decision</span><b className={signal==='WAIT'?'neutral':signal==='LONG'?'green':'red'}>{signal==='WAIT'?'WAIT · '+analysis.reasons[0]:signal}</b></div></div>}{signalConflict&&<div className="trade-warning"><b>⚠ SIGNAL CONFLICT</b><span>Active {displayTrade.side} trade, but the latest market bias is {signal}. Review the position; no automatic action is taken.</span></div>}<div className="confidence"><div><span>Confluence score</span><b>{score||'—'}<small>/100</small></b></div><div className="meter"><i style={{width:score+'%'}}/></div><small className="disclaimer">Heuristic score — not a probability of profit.</small></div><div className="levels"><div><span>{displayTrade?'ACTIVE '+displayTrade.side+' · '+displayTrade.symbol:'Selected market entry'}</span><b>{displayTrade?fmt(displayTrade.entry):(last?fmt(last):'—')}</b></div><div><span>Live P/L · {displayTrade?'since entry':'no active position'}</span><b className={tradePnl>=0?'green':'red'}>{displayTrade?(tradePnl>=0?'+':'')+tradePnl.toFixed(2)+'%':'—'}</b></div><div><span>Stop loss</span><b className="red">{displayTrade?fmt(displayTrade.sl):'Await confirmation'}</b></div><div><span>Take profit 1 / 2 / 3</span><b className="green">{displayTrade?[displayTrade.tp1,displayTrade.tp2,displayTrade.tp3].map(fmt).join(' / '):'Await confirmation'}</b></div><div><span>Trade status · ${activeTradeCount} active across coins</span><b>{displayTrade?'ACTIVE · '+displayTrade.frame:'No active trade for this coin'}</b></div></div><div className="signal-foot"><ShieldCheck/> No orders are placed. Analysis only.</div></section>
-        <section className="panel indicators"><div className="panel-head"><div><h2><Gauge/> Technical indicators</h2><small>Calculated from selected timeframe</small></div></div><div className="indicator-grid"><div><small>RSI (14)</small><b>{ind?ind.rsi.toFixed(1):'—'}</b><span className={ind?(ind.rsi>70?'red':ind.rsi<30?'green':'neutral'):'neutral'}>{ind?(ind.rsi>70?'Overbought':ind.rsi<30?'Oversold':'Neutral'):'Waiting for data'}</span></div><div><small>EMA 9</small><b>{ind?fmt(ind.e9):'—'}</b><span>Short-term trend</span></div><div><small>EMA 21</small><b>{ind?fmt(ind.e21):'—'}</b><span>Trend direction</span></div><div><small>EMA 50</small><b>{ind?fmt(ind.e50):'—'}</b><span>Market structure</span></div></div></section>
+        <section className="panel signal-panel"><div className="panel-head"><div><h2><Zap/> AI signal analysis</h2><small>Shared 5m + 15m + 1h confirmation · same rules as scanner</small></div><span className="beta">BETA</span></div><div className={'signal-box '+signal.toLowerCase()}><div className="signal-top"><span>MARKET BIAS</span><span className="signal-dot"/></div><div className="signal-word">{signal}</div><p>{signal==='WAIT'?(analysis?.reasons?.[0]||'Waiting for matching 5m, 15m and 1h confirmation.'):signal==='LONG'?'Bullish momentum alignment detected. Look for a confirmed entry.':'Bearish momentum alignment detected. Look for a confirmed entry.'}</p></div>{analysis&&<div className="analysis-checks"><div><span>Trend direction</span><b className={analysis.trend==='UPTREND'?'green':analysis.trend==='DOWNTREND'?'red':'neutral'}>{analysis.trend}</b></div><div><span>Momentum strength</span><b>{analysis.momentum}</b></div><div><span>Entry confirmation</span><b className={analysis.confirmation==='CONFIRMED'?'green':'neutral'}>{analysis.confirmation}</b></div><div><span>Consolidation</span><b className={analysis.consolidation==='YES'?'red':'green'}>{analysis.consolidation}</b></div><div><span>False-entry filter</span><b className={analysis.falseEntry==='CLEAR'?'green':'red'}>{analysis.falseEntry}</b></div><div><span>Decision</span><b className={signal==='WAIT'?'neutral':signal==='LONG'?'green':'red'}>{signal==='WAIT'?'WAIT · '+analysis.reasons[0]:signal}</b></div></div>}{signalConflict&&<div className="trade-warning"><b>⚠ SIGNAL CONFLICT</b><span>Active {displayTrade.side} trade, but the latest market bias is {signal}. Review the position; no automatic action is taken.</span></div>}<div className="confidence"><div><span>Confluence score</span><b>{score||'—'}<small>/100</small></b></div><div className="meter"><i style={{width:score+'%'}}/></div><small className="disclaimer">Heuristic score — not a probability of profit.</small></div><div className="levels"><div><span>{displayTrade?'ACTIVE '+displayTrade.side+' · '+displayTrade.symbol:'Selected market entry'}</span><b>{displayTrade?fmt(displayTrade.entry):(last?fmt(last):'—')}</b></div><div><span>Live P/L · {displayTrade?'since entry':'no active position'}</span><b className={tradePnl>=0?'green':'red'}>{displayTrade?(tradePnl>=0?'+':'')+tradePnl.toFixed(2)+'%':'—'}</b></div><div><span>Stop loss</span><b className="red">{displayTrade?fmt(displayTrade.sl):'Await confirmation'}</b></div><div><span>Take profit 1 / 2 / 3</span><b className="green">{displayTrade?[displayTrade.tp1,displayTrade.tp2,displayTrade.tp3].map(fmt).join(' / '):'Await confirmation'}</b></div><div><span>Trade status · ${activeTradeCount} active across coins</span><b>{displayTrade?'ACTIVE · '+displayTrade.frame:'No active trade for this coin'}</b></div></div><div className="signal-foot"><ShieldCheck/> No orders are placed. Analysis only.</div></section>
+        <section className="panel indicators"><div className="panel-head"><div><h2><Gauge/> Technical indicators</h2><small>Based on the same multi-timeframe confirmation</small></div></div><div className="indicator-grid"><div><small>RSI (14)</small><b>{ind?ind.rsi.toFixed(1):'—'}</b><span className={ind?(ind.rsi>70?'red':ind.rsi<30?'green':'neutral'):'neutral'}>{ind?(ind.rsi>70?'Overbought':ind.rsi<30?'Oversold':'Neutral'):'Waiting for data'}</span></div><div><small>EMA 9</small><b>{ind?fmt(ind.e9):'—'}</b><span>Short-term trend</span></div><div><small>EMA 21</small><b>{ind?fmt(ind.e21):'—'}</b><span>Trend direction</span></div><div><small>EMA 50</small><b>{ind?fmt(ind.e50):'—'}</b><span>Market structure</span></div></div></section>
         <section className="panel scanner-panel"><div className="panel-head"><div><h2><Zap/> Automatic market scanner</h2><small>Top 40 USDT pairs · 5m + 15m + 1h trend agreement</small></div><div className="scanner-controls"><label htmlFor="leverage-select">LEVERAGE</label><select id="leverage-select" value={leverage} onChange={e=>setLeverage(e.target.value)}>{[1,2,3,5,10,20,50,100,125].map(x=><option key={x} value={x}>{x}x</option>)}</select><span className="beta">{scannerBusy?'SCANNING':'AUTO SCAN'}</span></div></div>
           <div className="scanner-meta"><span>{scannerBusy?'Checking market setups…':Object.keys(scannerTrades).length+' active setups'}</span><span>Updated {scanUpdated||'—'} · refreshes every 90s</span></div>
           {scannerError&&<div className="error">{scannerError}</div>}
