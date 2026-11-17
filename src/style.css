@@ -34,3 +34,6 @@
 .scanner-levels i:first-child{color:#f07783}
 .scanner-levels i:not(:first-child){color:#45d6a5}
 @media(max-width:760px){.scanner-trade-row{grid-template-columns:1fr 48px 70px 1fr}.scanner-levels{gap:9px}}
+
+.scanner-controls{display:flex;align-items:center;gap:8px}.scanner-controls label{font-size:8px;letter-spacing:.8px;color:#71839a}.scanner-controls select{background:#14253a;border:1px solid #2a4058;border-radius:5px;color:#53dfb7;padding:5px 7px;font:10px 'DM Mono';outline:none}.scanner-controls select:focus{border-color:#53dfb7}
+@media(max-width:480px){.scanner-controls{gap:5px}.scanner-controls label{display:none}}
