@@ -113,7 +113,7 @@ export default function App(){
       if(!responses[0].ok||!responses[1].ok)throw Error('Binance market data is temporarily unavailable.');
       const data=await Promise.all(responses.map(x=>x.json()));
       if(requestId!==requestRef.current)return;
-      setBars(data[0].map(x=>({time:x[0],open:+x[1],high:+x[2],low:+x[3],close:+x[4]})));
+      setBars(data[0].map(x=>({time:x[0],open:+x[1],high:+x[2],low:+x[3],close:+x[4],volume:+x[5]})));
       setTickers(data[1].filter(x=>x.symbol.endsWith('USDT')).sort((a,b)=>+b.quoteVolume- +a.quoteVolume));
       setLoadedKey(requestKey);
       setUpdated(new Date().toLocaleTimeString());
