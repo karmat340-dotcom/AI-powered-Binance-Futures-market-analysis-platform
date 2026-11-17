@@ -27,16 +27,35 @@ export async function scanMarkets(tickers, options = {}) {
         analyseMarket(raw15m, price),
         analyseMarket(raw1h, price)
       ];
-      if (frames.some(frame => !frame || frame.side === 'WAIT')) return null;
-      if (!frames.every(frame => frame.side === frames[0].side)) return null;
-      const levels = buildTradeLevels(raw5m, frames[0].side, price);
+      if (frames.some(frame => !frame)) return null;
+      const score = Math.round(frames.reduce((total, frame) => total + frame.score, 0) / frames.length);
+      const confirmed = frames.every(frame => frame.side !== 'WAIT' && frame.side === frames[0].side);
+      let side = confirmed ? frames[0].side : null;
+      let status = 'CONFIRMED';
+      let missing = [];
+      if (!confirmed) {
+        const earlySides = frames.map(frame => frame.earlySide).filter(Boolean);
+        const longCount = earlySides.filter(value => value === 'LONG').length;
+        const shortCount = earlySides.filter(value => value === 'SHORT').length;
+        side = longCount >= 2 ? 'LONG' : shortCount >= 2 ? 'SHORT' : null;
+        // Early candidates need directional agreement on at least two timeframes,
+        // a useful confluence score, and no false-entry warning on any timeframe.
+        if (!side || score < 45 || frames.some(frame => frame.falseEntry === 'BLOCKED')) return null;
+        status = 'EARLY';
+        missing = frames.flatMap((frame, index) =>
+          frame.side === 'WAIT' ? [`${['5m','15m','1h'][index]}: ${frame.reasons?.[0] || 'confirmation pending'}`] : []
+        );
+      }
+      const levels = buildTradeLevels(raw5m, side, price);
       if (!levels) return null;
       return {
-        symbol: ticker.symbol, side: frames[0].side, entry: price,
-        ...levels,
-        score: Math.round(frames.reduce((total, frame) => total + frame.score, 0) / frames.length),
+        symbol: ticker.symbol, side, status, entry: price,
+        ...levels, missing,
+        score,
         trend: frames[2].trend, momentum: frames[0].momentum,
-        confirmation: 'CONFIRMED', consolidation: 'NO', falseEntry: 'CLEAR',
+        confirmation: confirmed ? 'CONFIRMED' : 'EARLY · NOT CONFIRMED',
+        consolidation: frames.some(frame => frame.consolidation === 'YES') ? 'YES' : 'NO',
+        falseEntry: 'CLEAR',
         price, change: Number(ticker.priceChangePercent),
         volume: Number(ticker.quoteVolume),
         rsi5m: frames[0].rsi, rsi15m: frames[1].rsi, rsi1h: frames[2].rsi,
@@ -56,5 +75,5 @@ export async function scanMarkets(tickers, options = {}) {
     }
   });
   await Promise.all(workers);
-  return results.sort((a, b) => b.score - a.score).slice(0, 12);
+  return results.sort((a, b) => (a.status === b.status ? b.score - a.score : a.status === 'CONFIRMED' ? -1 : 1)).slice(0, 20);
 }
