@@ -86,7 +86,7 @@ export function analyseMarket(raw, livePrice) {
     confirmation: confirmation ? 'CONFIRMED' : 'WAITING',
     consolidation: consolidation ? 'YES' : 'NO',
     falseEntry: falseEntry ? 'BLOCKED' : 'CLEAR',
-    reasons, volumeRatio, atr,
+    reasons, volumeRatio, bodyRatio, atr,
     checks: {
       trend: trend === (bullishMomentum ? 'UPTREND' : bearishMomentum ? 'DOWNTREND' : 'MIXED'),
       trendAligned: bullishTrend || bearishTrend,
