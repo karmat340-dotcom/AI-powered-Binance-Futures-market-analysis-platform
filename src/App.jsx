@@ -106,6 +106,23 @@ export default function App(){
   const requestRef=useRef(0);
   const scannerSectionRef=useRef(null),watchSectionRef=useRef(null),strategySectionRef=useRef(null);
   const [activeSection,setActiveSection]=useState('overview');
+  const [notificationPermission,setNotificationPermission]=useState(()=>('Notification' in window?Notification.permission:'unsupported'));
+  async function enableNotifications(){
+    if(!('Notification' in window)){window.alert('This browser does not support desktop notifications.');return;}
+    const permission=await Notification.requestPermission();
+    setNotificationPermission(permission);
+    if(permission==='granted')new Notification('TRADE AI alerts enabled',{body:'You will be notified when a confirmed trade setup opens.'});
+  }
+  function notifyTradeOpen(trade,source){
+    if(!('Notification' in window)||Notification.permission!=='granted')return;
+    try{
+      new Notification('TRADE OPENED · '+trade.symbol,{
+        body:source+' · '+trade.side+'\nEntry: '+fmt(trade.entry)+' | SL: '+fmt(trade.sl)+' | TP1: '+fmt(trade.tp1),
+        tag:'tradeai-open-'+trade.symbol+'-'+trade.side,
+        requireInteraction:true
+      });
+    }catch{}
+  }
   const sectionNames={overview:'Market overview',scanner:'Signal scanner',watchlist:'Watchlist',strategy:'Strategy lab'};
   function navigateTo(section){
     setActiveSection(section);
@@ -154,6 +171,7 @@ export default function App(){
               const key='tradeai-scanner-last-signal-'+item.symbol;
               if(localStorage.getItem(key)===item.side)return;
               next[item.symbol]={...item,analysisVersion:2,id:Date.now()+'-'+item.symbol,status:'ACTIVE',openedAt:new Date().toISOString()};
+              notifyTradeOpen(next[item.symbol],'Automatic market scanner');
               localStorage.setItem(key,item.side);
             });
             localStorage.setItem('tradeai-scanner-trades',JSON.stringify(next));
@@ -288,6 +306,7 @@ export default function App(){
     setActiveTrades(current=>{
       if(current[symbol])return current;
       const trade=makeTrade(signal,symbol,frame,last,bars);
+      if(trade)notifyTradeOpen(trade,'Main signal analysis');
       return trade?{...current,[symbol]:trade}:current;
     });
   },[signal,activeTrades,symbol,frame,last,bars,dataReady]);
@@ -312,7 +331,7 @@ export default function App(){
       <div className="sidebar-bottom"><div className="secure"><ShieldCheck/><span>Read-only market data<small>No exchange keys connected</small></span></div><small className="version">TRADE AI · EARLY ACCESS</small></div>
     </aside>
     <main className="main">
-      <header className="topbar"><div className="crumb">Workspace <span>/</span> <b>{sectionNames[activeSection]}</b></div><div className="top-actions"><div className="live-pill"><i/> BINANCE FUTURES</div><button className="icon-btn"><Bell/></button><div className="avatar">T</div></div></header>
+      <header className="topbar"><div className="crumb">Workspace <span>/</span> <b>{sectionNames[activeSection]}</b></div><div className="top-actions"><div className="live-pill"><i/> BINANCE FUTURES</div><button className={'icon-btn notification-btn '+(notificationPermission==='granted'?'notifications-on':'')} onClick={enableNotifications} title={notificationPermission==='granted'?'Trade notifications enabled':'Enable trade notifications'} aria-label="Enable trade notifications"><Bell/></button><div className="avatar">T</div></div></header>
       <section className="welcome"><div><div className="eyebrow"><span/> LIVE MARKET TERMINAL</div><h1>Market <em>overview</em></h1><p>Track the futures market. Find structure. Plan your next move.</p></div><button className="refresh" onClick={load}><RefreshCw/> Refresh data</button></section>
       <section className="market-strip"><div className="strip-label">SELECTED MARKET</div><div className="pair"><div className="pair-icon">{symbol[0]}</div><div><b>{symbol.replace('USDT','')} <span>/ USDT</span></b><small>USDT-M PERPETUAL</small></div><span className="perp">PERP</span></div><div className="price-block"><small>LAST PRICE</small><b>{last?fmt(last):'—'}</b></div><div className="price-block"><small>24H CHANGE</small><b className={+(ticker?.priceChangePercent||0)>=0?'green':'red'}>{ticker?(+ticker.priceChangePercent>=0?'+':'')+(+ticker.priceChangePercent).toFixed(2)+'%':'—'}</b></div><div className="price-block hide-mobile"><small>24H HIGH</small><b>{ticker?fmt(ticker.highPrice):'—'}</b></div><div className="price-block hide-mobile"><small>24H VOLUME</small><b>{ticker?(ticker.quoteVolume/1e6).toFixed(1)+'M':'—'}</b></div></section>
       <div className="grid">
