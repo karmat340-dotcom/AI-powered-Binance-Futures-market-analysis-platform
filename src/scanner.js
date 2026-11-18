@@ -29,12 +29,19 @@ export async function scanMarkets(tickers, options = {}) {
       ];
       if (frames.some(frame => !frame)) return null;
       const score = Math.round(frames.reduce((total, frame) => total + frame.score, 0) / frames.length);
-      const confirmed = frames.every(frame => frame.side !== 'WAIT' && frame.side === frames[0].side);
-      let side = confirmed ? frames[0].side : null;
-      let status = 'CONFIRMED';
+      const strong = frames.every(frame => frame.side !== 'WAIT' && frame.side === frames[0].side);
+      const higherDirection = frames[1].side !== 'WAIT' && frames[1].side === frames[2].side ? frames[1].side : null;
+      const fiveSupports = higherDirection === 'LONG'
+        ? frames[0].falseEntry === 'CLEAR' && frames[0].momentum !== 'BEARISH' && frames[0].trend !== 'DOWNTREND'
+        : higherDirection === 'SHORT'
+          ? frames[0].falseEntry === 'CLEAR' && frames[0].momentum !== 'BULLISH' && frames[0].trend !== 'UPTREND'
+          : false;
+      const moderate = !strong && !!higherDirection && fiveSupports && frames.every(frame => frame.falseEntry === 'CLEAR');
+      let side = strong ? frames[0].side : moderate ? higherDirection : null;
+      let status = strong ? 'STRONG' : moderate ? 'MODERATE' : 'EARLY';
       let missing = [];
       let caution = false;
-      if (!confirmed) {
+      if (!strong && !moderate) {
         // Broader directional votes are for watch-only candidates, never confirmed entries.
         const votes = frames.map(frame => {
           if (frame.trend === 'UPTREND' && frame.momentum !== 'BEARISH') return 'LONG';
@@ -72,7 +79,7 @@ export async function scanMarkets(tickers, options = {}) {
         ...levels, missing,
         score,
         trend: frames[2].trend, momentum: frames[0].momentum,
-        confirmation: confirmed ? 'CONFIRMED' : 'EARLY · NOT CONFIRMED',
+        confirmation: strong ? 'STRONG · 3/3 CONFIRMED' : moderate ? 'MODERATE · 15m + 1h CONFIRMED' : 'EARLY · NOT CONFIRMED',
         consolidation: frames.some(frame => frame.consolidation === 'YES') ? 'YES' : 'NO',
         falseEntry: caution ? 'CAUTION' : 'CLEAR',
         price, change: Number(ticker.priceChangePercent),
@@ -94,5 +101,6 @@ export async function scanMarkets(tickers, options = {}) {
     }
   });
   await Promise.all(workers);
-  return results.sort((a, b) => (a.status === b.status ? b.score - a.score : a.status === 'CONFIRMED' ? -1 : 1)).slice(0, 20);
+  const rank = { STRONG: 0, MODERATE: 1, EARLY: 2 };
+  return results.sort((a, b) => (rank[a.status] - rank[b.status]) || (b.score - a.score)).slice(0, 20);
 }
