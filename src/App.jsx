@@ -228,7 +228,7 @@ export default function App(){
         if(!cancelled){
           setScanStats(scan.stats);
           const confirmedResults=results.filter(item=>item.status==='STRONG'||item.status==='MODERATE'||item.status==='SCALP');
-          setEarlySetups(results.filter(item=>item.status==='EARLY'));
+          setEarlySetups(results.filter(item=>item.status==='EARLY'||item.status==='SCALP WATCH'));
           setPotentialSetups(results.filter(item=>item.status==='POTENTIAL'));
           setScannerTrades(existing=>{
             const next={...existing};
