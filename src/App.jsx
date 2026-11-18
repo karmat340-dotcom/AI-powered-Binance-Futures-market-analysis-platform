@@ -2,7 +2,7 @@ import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {Activity,Bell,CandlestickChart,Crosshair,Gauge,Layers3,RefreshCw,Search,ShieldCheck,Star,TrendingUp,Zap} from 'lucide-react';
 import {createChart,CandlestickSeries,ColorType,CrosshairMode} from 'lightweight-charts';
 import {scanMarkets} from './scanner.js';
-import {analyseMarket,buildTradeLevels} from './analysis.js';
+import {analyseMarket,buildTradeLevels,getDirectionalBias} from './analysis.js';
 
 const API='https://fapi.binance.com';
 const FRAMES=['1m','3m','5m','15m','30m','1h','2h','4h','6h','8h','12h','1d','3d','1w','1M'];
@@ -241,10 +241,12 @@ export default function App(){
         if(cancelled)return;
         const sides=frames.map(item=>item?.side||'WAIT');
         const aligned=sides[0]!=='WAIT'&&sides.every(side=>side===sides[0]);
-        const higherDirection=sides[1]!=='WAIT'&&sides[1]===sides[2]?sides[1]:null;
+        const bias15m=getDirectionalBias(frames[1]);
+        const bias1h=getDirectionalBias(frames[2]);
+        const higherDirection=bias15m&&bias15m===bias1h?bias15m:null;
         const five=frames[0];
         const fiveSupports=higherDirection==='LONG'?five?.falseEntry==='CLEAR'&&five?.momentum!=='BEARISH'&&five?.trend!=='DOWNTREND':higherDirection==='SHORT'?five?.falseEntry==='CLEAR'&&five?.momentum!=='BULLISH'&&five?.trend!=='UPTREND':false;
-        const moderate=!aligned&&!!higherDirection&&fiveSupports&&frames.every(item=>item?.falseEntry==='CLEAR');
+        const moderate=!aligned&&!!higherDirection&&frames[1]?.confirmation==='CONFIRMED'&&frames[1]?.falseEntry==='CLEAR'&&frames[2]?.falseEntry==='CLEAR'&&fiveSupports;
         const side=aligned?sides[0]:moderate?higherDirection:'WAIT';
         const earlyLongCount=frames.filter(item=>item?.earlySide==='LONG').length;
         const earlyShortCount=frames.filter(item=>item?.earlySide==='SHORT').length;
