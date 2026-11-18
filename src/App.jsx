@@ -166,13 +166,17 @@ export default function App(){
     let socket=null,retryTimer=null,closed=false,retryDelay=1000;
     const connect=()=>{
       if(closed)return;
-      const streams=`${symbol.toLowerCase()}@kline_${frame}/${symbol.toLowerCase()}@markPrice@1s`;
+      const streams=`${symbol.toLowerCase()}@kline_${frame}/${symbol.toLowerCase()}@markPrice@1s/!ticker@arr`;
       socket=new WebSocket('wss://fstream.binance.com/stream?streams='+streams);
       socket.onopen=()=>{retryDelay=1000;setStreamConnected(true)};
       socket.onmessage=event=>{
         try{
           const packet=JSON.parse(event.data);
           const data=packet.data||packet;
+          if(Array.isArray(data)){
+            setTickers(data.filter(item=>item.s?.endsWith('USDT')).map(item=>({symbol:item.s,lastPrice:item.c,priceChangePercent:item.P,quoteVolume:item.q})));
+            return;
+          }
           if(data.e==='markPriceUpdate'&&data.s===symbol){
             const price=Number(data.p);
             if(price>0)setLiveStreamPrice(price);
