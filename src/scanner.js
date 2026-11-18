@@ -38,10 +38,10 @@ export async function scanMarkets(tickers, options = {}) {
         : higherDirection === 'SHORT'
           ? frames[0].falseEntry === 'CLEAR' && frames[0].momentum !== 'BULLISH' && frames[0].trend !== 'UPTREND'
           : false;
-      // Moderate needs 15m entry confirmation + aligned 15m/1h trend and momentum.
-      // The 5m chart must support, but does not need its own breakout.
+      // Flexible moderate setup: 15m and 1h trend/momentum must agree.
+      // Removed the extra 15m breakout-confirmation requirement to reduce unnecessary WAITs.
+      // Keep false-entry protection and require 5m not to strongly oppose the direction.
       const moderate = !strong && !!higherDirection &&
-        frames[1].confirmation === 'CONFIRMED' &&
         frames[1].falseEntry === 'CLEAR' &&
         frames[2].falseEntry === 'CLEAR' &&
         fiveSupports;
