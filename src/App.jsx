@@ -299,7 +299,9 @@ export default function App(){
         const higherDirection=bias15m&&bias15m===bias1h?bias15m:null;
         const five=frames[0];
         const fiveSupports=higherDirection==='LONG'?five?.falseEntry==='CLEAR'&&five?.momentum!=='BEARISH'&&five?.trend!=='DOWNTREND':higherDirection==='SHORT'?five?.falseEntry==='CLEAR'&&five?.momentum!=='BULLISH'&&five?.trend!=='UPTREND':false;
-        const moderate=!aligned&&!!higherDirection&&frames[1]?.confirmation==='CONFIRMED'&&frames[1]?.falseEntry==='CLEAR'&&frames[2]?.falseEntry==='CLEAR'&&fiveSupports;
+        // Flexible moderate setup: remove the extra 15m breakout-confirmation gate,
+        // while retaining higher-timeframe alignment and false-entry protection.
+        const moderate=!aligned&&!!higherDirection&&frames[1]?.falseEntry==='CLEAR'&&frames[2]?.falseEntry==='CLEAR'&&fiveSupports;
         const side=aligned?sides[0]:moderate?higherDirection:'WAIT';
         const earlyLongCount=frames.filter(item=>item?.earlySide==='LONG').length;
         const earlyShortCount=frames.filter(item=>item?.earlySide==='SHORT').length;
