@@ -21,6 +21,7 @@ export async function scanMarkets(tickers, options = {}) {
         fetchFrame(ticker.symbol, '15m'),
         fetchFrame(ticker.symbol, '1h')
       ]);
+      analysed++;
       const price = Number(ticker.lastPrice);
       const frames = [
         analyseMarket(raw5m, price),
@@ -109,10 +110,13 @@ export async function scanMarkets(tickers, options = {}) {
         confirmedAt: new Date().toISOString()
       };
     } catch {
+      dataErrors++;
       return null;
     }
   });
   const results = [];
+  let analysed = 0;
+  let dataErrors = 0;
   let next = 0;
   const workers = Array.from({ length: Math.min(4, tasks.length) }, async () => {
     while (next < tasks.length) {
@@ -123,5 +127,6 @@ export async function scanMarkets(tickers, options = {}) {
   });
   await Promise.all(workers);
   const rank = { STRONG: 0, MODERATE: 1, EARLY: 2, POTENTIAL: 3 };
-  return results.sort((a, b) => (rank[a.status] - rank[b.status]) || (b.score - a.score)).slice(0, 20);
+  const sorted = results.sort((a, b) => (rank[a.status] - rank[b.status]) || (b.score - a.score)).slice(0, 20);
+  return { results: sorted, stats: { attempted: candidates.length, analysed, dataErrors, strong: results.filter(x => x.status === 'STRONG').length, moderate: results.filter(x => x.status === 'MODERATE').length, early: results.filter(x => x.status === 'EARLY').length, potential: results.filter(x => x.status === 'POTENTIAL').length } };
 }
