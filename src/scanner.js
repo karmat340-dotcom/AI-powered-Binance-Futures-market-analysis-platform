@@ -61,8 +61,21 @@ export async function scanMarkets(tickers, options = {}) {
         const longCount = votes.filter(value => value === 'LONG').length;
         const shortCount = votes.filter(value => value === 'SHORT').length;
         side = longCount >= 2 ? 'LONG' : shortCount >= 2 ? 'SHORT' : null;
-        if (!side || score < 35) return null;
-        status = 'EARLY';
+        if (!side || score < 35) {
+          // Looser higher-timeframe alignment is a potential setup, never a trade entry.
+          const higherLong = ['UPTREND','BULLISH'].filter((_, index) => {
+            const frame = frames[index + 1];
+            return frame.trend === 'UPTREND' || frame.momentum === 'BULLISH';
+          }).length;
+          const higherShort = frames.slice(1).filter(frame =>
+            frame.trend === 'DOWNTREND' || frame.momentum === 'BEARISH'
+          ).length;
+          side = higherLong >= 2 ? 'LONG' : higherShort >= 2 ? 'SHORT' : null;
+          if (!side || score < 25) return null;
+          status = 'POTENTIAL';
+        } else {
+          status = 'EARLY';
+        }
         caution = frames.some(frame => frame.falseEntry === 'BLOCKED');
         missing = [];
         frames.forEach((frame, index) => {
@@ -87,7 +100,7 @@ export async function scanMarkets(tickers, options = {}) {
         ...levels, missing,
         score,
         trend: frames[2].trend, momentum: frames[0].momentum,
-        confirmation: strong ? 'STRONG · 3/3 CONFIRMED' : moderate ? 'MODERATE · 15m + 1h CONFIRMED' : 'EARLY · NOT CONFIRMED',
+        confirmation: strong ? 'STRONG · 3/3 CONFIRMED' : moderate ? 'MODERATE · 15m + 1h CONFIRMED' : (status === 'POTENTIAL' ? 'POTENTIAL · WATCH ONLY' : 'EARLY · NOT CONFIRMED'),
         consolidation: frames.some(frame => frame.consolidation === 'YES') ? 'YES' : 'NO',
         falseEntry: caution ? 'CAUTION' : 'CLEAR',
         price, change: Number(ticker.priceChangePercent),
@@ -109,6 +122,6 @@ export async function scanMarkets(tickers, options = {}) {
     }
   });
   await Promise.all(workers);
-  const rank = { STRONG: 0, MODERATE: 1, EARLY: 2 };
+  const rank = { STRONG: 0, MODERATE: 1, EARLY: 2, POTENTIAL: 3 };
   return results.sort((a, b) => (rank[a.status] - rank[b.status]) || (b.score - a.score)).slice(0, 20);
 }
