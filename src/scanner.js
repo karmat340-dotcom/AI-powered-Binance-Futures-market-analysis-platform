@@ -78,8 +78,8 @@ export async function scanMarkets(tickers, options = {}) {
         const opposing = bias === 'LONG'
           ? fifteen.trend === 'DOWNTREND' && fifteen.momentum === 'BEARISH'
           : bias === 'SHORT' ? fifteen.trend === 'UPTREND' && fifteen.momentum === 'BULLISH' : false;
-        const trigger = five.falseEntry === 'CLEAR' && !five.consolidation &&
-          (five.checks.breakout || (five.checks.candleBody && five.volumeRatio >= 0.8));
+        const trigger = five.falseEntry === 'CLEAR' &&
+          (five.checks.breakout || (!five.consolidation && five.bodyRatio >= 0.30 && five.volumeRatio >= 0.65));
         if (bias && trigger && !opposing) { side = bias; status = 'SCALP'; }
         else {
           const longClues = [five.trend === 'UPTREND',five.momentum === 'BULLISH',one.momentum === 'BULLISH'].filter(Boolean).length;
