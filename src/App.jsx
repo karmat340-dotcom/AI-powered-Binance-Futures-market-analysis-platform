@@ -398,14 +398,14 @@ export default function App(){
         if(cancelled||!five||!fifteen)return;
         const bias=getDirectionalBias(five);
         const opposing=bias==='LONG'?(fifteen.trend==='DOWNTREND'&&fifteen.momentum==='BEARISH'):bias==='SHORT'?(fifteen.trend==='UPTREND'&&fifteen.momentum==='BULLISH'):false;
-        const trigger=five.falseEntry==='CLEAR'&&!five.consolidation&&(five.checks.breakout||(five.checks.candleBody&&five.volumeRatio>=0.9));
+        const trigger=five.falseEntry==='CLEAR'&&(five.checks.breakout||(!five.consolidation&&five.bodyRatio>=0.30&&five.volumeRatio>=0.65));
         const side=bias&&trigger&&!opposing?bias:'WAIT';
         const earlySide=side==='WAIT'&&!opposing&&bias?bias:null;
         const levels=side!=='WAIT'?buildTradeLevels(fiveRaw,side,last):null;
         const reasons=[];
         if(!bias)reasons.push('5m trend and momentum are not aligned');
         else if(opposing)reasons.push('15m trend and momentum strongly oppose the 5m direction');
-        else if(!trigger)reasons.push('Waiting for a 5m breakout or strong candle with volume');
+        else if(!trigger)reasons.push('Waiting for a 5m breakout or a strong non-consolidating candle');
         setFiveMinuteScalp({symbol,analysis:{side:levels?side:'WAIT',earlySide:levels?null:earlySide,score:Math.round(((five.score||0)+(fifteen.score||0))/2),trend:five.trend,momentum:five.momentum,confirmation:levels?'5m ENTRY · 15m CONTEXT':'WAITING',consolidation:five.consolidation?'YES':'NO',falseEntry:five.falseEntry,reasons:levels?[]:reasons,levels}});
       }catch{if(!cancelled)setFiveMinuteScalp({symbol,analysis:null})}
       finally{running=false}
