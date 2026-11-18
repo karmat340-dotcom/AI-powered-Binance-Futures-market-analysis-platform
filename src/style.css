@@ -62,3 +62,5 @@
 .strategy-note svg{width:16px;min-width:16px;color:#4bdab5}
 @media(max-width:760px){.strategy-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:480px){.strategy-grid{grid-template-columns:1fr}}
+
+.notification-btn{cursor:pointer;position:relative}.notification-btn.notifications-on{color:#45d6a5}.notification-btn.notifications-on:after{content:'';position:absolute;width:5px;height:5px;border-radius:50%;background:#45d6a5;right:0;top:0;box-shadow:0 0 7px #45d6a5}
