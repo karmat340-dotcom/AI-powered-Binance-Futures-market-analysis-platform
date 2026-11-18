@@ -130,3 +130,10 @@ export function buildTradeLevels(raw, side, entry) {
     riskReward: { tp1: '1:1.5', tp2: '1:2', tp3: '1:3' }
   };
 }
+
+export function getDirectionalBias(frame) {
+  if (!frame) return null;
+  if (frame.trend === 'UPTREND' && frame.momentum === 'BULLISH') return 'LONG';
+  if (frame.trend === 'DOWNTREND' && frame.momentum === 'BEARISH') return 'SHORT';
+  return null;
+}
