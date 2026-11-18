@@ -88,6 +88,7 @@ function PriceChart({bars,livePrice,symbol,frame}){
 
 export default function App(){
   const [symbol,setSymbol]=useState('BTCUSDT'),[frame,setFrame]=useState('15m'),[bars,setBars]=useState([]),[tickers,setTickers]=useState([]),[busy,setBusy]=useState(true),[error,setError]=useState(''),[query,setQuery]=useState(''),[updated,setUpdated]=useState('');
+  const [liveStreamPrice,setLiveStreamPrice]=useState(0),[streamConnected,setStreamConnected]=useState(false);
   const [activeTrades,setActiveTrades]=useState(()=>{
     try{
       const saved=JSON.parse(localStorage.getItem('tradeai-active-trades')||'{}');
@@ -160,6 +161,50 @@ export default function App(){
   }
   useEffect(()=>{setBars([]);setLoadedKey('');load();const id=setInterval(load,20000);return()=>{clearInterval(id);requestRef.current++}},[symbol,frame]);
   useEffect(()=>{tickerRef.current=tickers},[tickers]);
+  // Binance Futures WebSocket: update the selected candle and live price between REST refreshes.
+  useEffect(()=>{
+    let socket=null,retryTimer=null,closed=false,retryDelay=1000;
+    const connect=()=>{
+      if(closed)return;
+      const streams=`${symbol.toLowerCase()}@kline_${frame}/${symbol.toLowerCase()}@markPrice@1s`;
+      socket=new WebSocket('wss://fstream.binance.com/stream?streams='+streams);
+      socket.onopen=()=>{retryDelay=1000;setStreamConnected(true)};
+      socket.onmessage=event=>{
+        try{
+          const packet=JSON.parse(event.data);
+          const data=packet.data||packet;
+          if(data.e==='markPriceUpdate'&&data.s===symbol){
+            const price=Number(data.p);
+            if(price>0)setLiveStreamPrice(price);
+          }
+          if(data.e==='kline'&&data.s===symbol&&data.k){
+            const k=data.k;
+            const candle={time:Number(k.t),open:Number(k.o),high:Number(k.h),low:Number(k.l),close:Number(k.c),volume:Number(k.v)};
+            setBars(current=>{
+              const next=current.slice();
+              const index=next.findIndex(item=>item.time===candle.time);
+              if(index>=0)next[index]=candle;
+              else next.push(candle);
+              return next.slice(-120);
+            });
+            setUpdated(new Date().toLocaleTimeString());
+          }
+        }catch{}
+      };
+      socket.onerror=()=>socket?.close();
+      socket.onclose=()=>{
+        setStreamConnected(false);
+        if(!closed){retryTimer=setTimeout(connect,retryDelay);retryDelay=Math.min(retryDelay*2,30000)}
+      };
+    };
+    setLiveStreamPrice(0);
+    connect();
+    return ()=>{
+      closed=true;clearTimeout(retryTimer);
+      if(socket){socket.onclose=null;socket.close()}
+      setStreamConnected(false);
+    };
+  },[symbol,frame]);
   useEffect(()=>{
     let cancelled=false, running=false;
     const runScan=async()=>{
@@ -225,7 +270,7 @@ export default function App(){
     });
   },[tickers]);
   const dataReady=loadedKey===symbol+'|'+frame;
-  const ticker=tickers.find(x=>x.symbol===symbol),closes=dataReady?bars.map(x=>x.close):[],last=Number(ticker?.lastPrice)||closes.at(-1)||0;
+  const ticker=tickers.find(x=>x.symbol===symbol),closes=dataReady?bars.map(x=>x.close):[],last=liveStreamPrice||Number(ticker?.lastPrice)||closes.at(-1)||0;
   const ind=useMemo(()=>closes.length>30?{e9:ema(closes.slice(-60),9),e21:ema(closes.slice(-80),21),e50:ema(closes.slice(-120),50),rsi:rsi(closes)}:null,[bars]);
   useEffect(()=>{
     let cancelled=false, running=false;
@@ -342,7 +387,7 @@ export default function App(){
       <div className="sidebar-bottom"><div className="secure"><ShieldCheck/><span>Read-only market data<small>No exchange keys connected</small></span></div><small className="version">TRADE AI · EARLY ACCESS</small></div>
     </aside>
     <main className="main">
-      <header className="topbar"><div className="crumb">Workspace <span>/</span> <b>{sectionNames[activeSection]}</b></div><div className="top-actions"><div className="live-pill"><i/> BINANCE FUTURES</div><button className={'icon-btn notification-btn '+(notificationPermission==='granted'?'notifications-on':'')} onClick={enableNotifications} title={notificationPermission==='granted'?'Trade notifications enabled':'Enable trade notifications'} aria-label="Enable trade notifications"><Bell/></button><div className="avatar">T</div></div></header>
+      <header className="topbar"><div className="crumb">Workspace <span>/</span> <b>{sectionNames[activeSection]}</b></div><div className="top-actions"><div className="live-pill"><i/> BINANCE FUTURES · {streamConnected?"STREAM LIVE":"RECONNECTING"}</div><button className={'icon-btn notification-btn '+(notificationPermission==='granted'?'notifications-on':'')} onClick={enableNotifications} title={notificationPermission==='granted'?'Trade notifications enabled':'Enable trade notifications'} aria-label="Enable trade notifications"><Bell/></button><div className="avatar">T</div></div></header>
       <section className="welcome"><div><div className="eyebrow"><span/> LIVE MARKET TERMINAL</div><h1>Market <em>overview</em></h1><p>Track the futures market. Find structure. Plan your next move.</p></div><button className="refresh" onClick={load}><RefreshCw/> Refresh data</button></section>
       <section className="market-strip"><div className="strip-label">SELECTED MARKET</div><div className="pair"><CryptoIcon symbol={symbol} size={31}/><div><b>{symbol.replace('USDT','')} <span>/ USDT</span></b><small>USDT-M PERPETUAL</small></div><span className="perp">PERP</span></div><div className="price-block"><small>LAST PRICE</small><b>{last?fmt(last):'—'}</b></div><div className="price-block"><small>24H CHANGE</small><b className={+(ticker?.priceChangePercent||0)>=0?'green':'red'}>{ticker?(+ticker.priceChangePercent>=0?'+':'')+(+ticker.priceChangePercent).toFixed(2)+'%':'—'}</b></div><div className="price-block hide-mobile"><small>24H HIGH</small><b>{ticker?fmt(ticker.highPrice):'—'}</b></div><div className="price-block hide-mobile"><small>24H VOLUME</small><b>{ticker?(ticker.quoteVolume/1e6).toFixed(1)+'M':'—'}</b></div></section>
       <div className="grid">
