@@ -160,7 +160,7 @@ export async function scanMarkets(tickers, options = {}) {
     while(next < tasks.length){const index=next++;const result=await tasks[index]();if(result)results.push(result);}
   });
   await Promise.all(workers);
-  const rank = mode === 'scalp' ? {'SCALP':0,'SCALP WATCH':1} : {STRONG:0,MODERATE:1,EARLY:2,POTENTIAL:3};
+  const rank = mode !== 'normal' ? {'SCALP':0,'SCALP WATCH':1} : {STRONG:0,MODERATE:1,EARLY:2,POTENTIAL:3};
   const sorted = results.sort((a,b)=>(rank[a.status]-rank[b.status])||(b.score-a.score)).slice(0,20);
   return {results:sorted,stats:{attempted:candidates.length,analysed,dataErrors,strong:results.filter(x=>x.status==='STRONG').length,moderate:results.filter(x=>x.status==='MODERATE').length,early:results.filter(x=>x.status==='EARLY').length,potential:results.filter(x=>x.status==='POTENTIAL').length,scalp:results.filter(x=>x.status==='SCALP').length,scalpWatch:results.filter(x=>x.status==='SCALP WATCH').length}};
 }
