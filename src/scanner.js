@@ -1,4 +1,4 @@
-import { analyseMarket, buildTradeLevels } from './analysis.js';
+import { analyseMarket, buildTradeLevels, getDirectionalBias } from './analysis.js';
 
 const API = 'https://fapi.binance.com';
 
@@ -30,13 +30,21 @@ export async function scanMarkets(tickers, options = {}) {
       if (frames.some(frame => !frame)) return null;
       const score = Math.round(frames.reduce((total, frame) => total + frame.score, 0) / frames.length);
       const strong = frames.every(frame => frame.side !== 'WAIT' && frame.side === frames[0].side);
-      const higherDirection = frames[1].side !== 'WAIT' && frames[1].side === frames[2].side ? frames[1].side : null;
+      const bias15m = getDirectionalBias(frames[1]);
+      const bias1h = getDirectionalBias(frames[2]);
+      const higherDirection = bias15m && bias15m === bias1h ? bias15m : null;
       const fiveSupports = higherDirection === 'LONG'
         ? frames[0].falseEntry === 'CLEAR' && frames[0].momentum !== 'BEARISH' && frames[0].trend !== 'DOWNTREND'
         : higherDirection === 'SHORT'
           ? frames[0].falseEntry === 'CLEAR' && frames[0].momentum !== 'BULLISH' && frames[0].trend !== 'UPTREND'
           : false;
-      const moderate = !strong && !!higherDirection && fiveSupports && frames.every(frame => frame.falseEntry === 'CLEAR');
+      // Moderate needs 15m entry confirmation + aligned 15m/1h trend and momentum.
+      // The 5m chart must support, but does not need its own breakout.
+      const moderate = !strong && !!higherDirection &&
+        frames[1].confirmation === 'CONFIRMED' &&
+        frames[1].falseEntry === 'CLEAR' &&
+        frames[2].falseEntry === 'CLEAR' &&
+        fiveSupports;
       let side = strong ? frames[0].side : moderate ? higherDirection : null;
       let status = strong ? 'STRONG' : moderate ? 'MODERATE' : 'EARLY';
       let missing = [];
