@@ -266,6 +266,8 @@ export default function App(){
         const hitTP3=trade.side==='LONG'?price>=trade.tp3:price<=trade.tp3;
         if(hitSL||hitTP3){
           delete next[tradeSymbol];
+          // Allow a fresh setup in the same direction after this scanner trade closes.
+          localStorage.removeItem('tradeai-scanner-last-signal-'+tradeSymbol);
           changed=true;
         }
       });
