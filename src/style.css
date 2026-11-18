@@ -67,3 +67,9 @@
 
 /* Cryptocurrency logos */
 .crypto-icon{display:inline-flex;flex:0 0 auto;align-items:center;justify-content:center;overflow:hidden;border-radius:50%;background:#20334a;color:#dce8f5;font-weight:700;vertical-align:middle}.crypto-icon img{display:block;width:100%;height:100%;object-fit:contain;border-radius:50%}.watch-row .crypto-icon{margin-right:0}.pair .crypto-icon{background:#17283b}.scanner-pair{display:flex;align-items:center;gap:8px}.scanner-pair>span:last-child{display:block}.table-coin{display:flex;align-items:center;gap:7px}.table-coin>span:last-child{display:inline-block}
+
+.mode-toggle{display:inline-flex;gap:3px;padding:3px;border:1px solid #26364b;border-radius:6px;background:#0c1726}
+.mode-toggle button{border:0;border-radius:4px;padding:6px 9px;background:transparent;color:#8293a9;font:600 9px 'DM Mono';cursor:pointer}
+.mode-toggle button.selected{background:#163d38;color:#51e0b7;box-shadow:inset 0 0 0 1px #276b5b}
+.mode-toggle button:hover{color:#e5edf7}
+@media(max-width:760px){.scanner-controls{flex-wrap:wrap}.mode-toggle{order:-1}}
