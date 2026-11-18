@@ -64,3 +64,6 @@
 @media(max-width:480px){.strategy-grid{grid-template-columns:1fr}}
 
 .notification-btn{cursor:pointer;position:relative}.notification-btn.notifications-on{color:#45d6a5}.notification-btn.notifications-on:after{content:'';position:absolute;width:5px;height:5px;border-radius:50%;background:#45d6a5;right:0;top:0;box-shadow:0 0 7px #45d6a5}
+
+/* Cryptocurrency logos */
+.crypto-icon{display:inline-flex;flex:0 0 auto;align-items:center;justify-content:center;overflow:hidden;border-radius:50%;background:#20334a;color:#dce8f5;font-weight:700;vertical-align:middle}.crypto-icon img{display:block;width:100%;height:100%;object-fit:contain;border-radius:50%}.watch-row .crypto-icon{margin-right:0}.pair .crypto-icon{background:#17283b}.scanner-pair{display:flex;align-items:center;gap:8px}.scanner-pair>span:last-child{display:block}.table-coin{display:flex;align-items:center;gap:7px}.table-coin>span:last-child{display:inline-block}
