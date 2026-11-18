@@ -33,12 +33,12 @@ function buildScalpLevels(raw, side, entry) {
 
 export async function scanMarkets(tickers, options = {}) {
   const limit = options.limit || 40;
-  const mode = options.mode === 'scalp' ? 'scalp' : 'normal';
+  const mode = ['scalp','five'].includes(options.mode) ? options.mode : 'normal';
   const candidates = tickers.filter(t => t.symbol.endsWith('USDT') && !t.symbol.includes('_'))
     .sort((a,b) => Number(b.quoteVolume) - Number(a.quoteVolume)).slice(0,limit);
   const tasks = candidates.map(ticker => async () => {
     try {
-      const intervals = mode === 'scalp' ? ['1m','5m','15m'] : ['5m','15m','1h'];
+      const intervals = mode === 'normal' ? ['5m','15m','1h'] : ['1m','5m','15m'];
       const rawFrames = await Promise.all(intervals.map(interval => fetchFrame(ticker.symbol,interval)));
       analysed++;
       const price = Number(ticker.lastPrice);
@@ -72,6 +72,29 @@ export async function scanMarkets(tickers, options = {}) {
         }
         caution = frames.some(frame => frame.falseEntry === 'BLOCKED');
         levels = buildScalpLevels(rawFrames[0],side,price);
+      } else if (mode === 'five') {
+        const [one,five,fifteen] = frames;
+        const bias = getDirectionalBias(five);
+        const opposing = bias === 'LONG'
+          ? fifteen.trend === 'DOWNTREND' && fifteen.momentum === 'BEARISH'
+          : bias === 'SHORT' ? fifteen.trend === 'UPTREND' && fifteen.momentum === 'BULLISH' : false;
+        const trigger = five.falseEntry === 'CLEAR' && !five.consolidation &&
+          (five.checks.breakout || (five.checks.candleBody && five.volumeRatio >= 0.8));
+        if (bias && trigger && !opposing) { side = bias; status = 'SCALP'; }
+        else {
+          const longClues = [five.trend === 'UPTREND',five.momentum === 'BULLISH',one.momentum === 'BULLISH'].filter(Boolean).length;
+          const shortClues = [five.trend === 'DOWNTREND',five.momentum === 'BEARISH',one.momentum === 'BEARISH'].filter(Boolean).length;
+          side = longClues >= 2 && longClues > shortClues ? 'LONG' : shortClues >= 2 && shortClues > longClues ? 'SHORT' : null;
+          if (!side) return null;
+          status = 'SCALP WATCH';
+          missing = ['Watch only — waiting for a completed 5m entry trigger'];
+          if (!bias) missing.push('5m trend and momentum need to align');
+          if (five.consolidation) missing.push('5m price is consolidating');
+          if (five.falseEntry !== 'CLEAR') missing.push('5m false-entry filter warning');
+          if (opposing) missing.push('15m direction is strongly opposing');
+        }
+        caution = five.falseEntry === 'BLOCKED' || opposing;
+        levels = buildTradeLevels(rawFrames[1],side,price);
       } else {
         const strong = frames.every(frame => frame.side !== 'WAIT' && frame.side === frames[0].side);
         const bias15m = getDirectionalBias(frames[1]), bias1h = getDirectionalBias(frames[2]);
@@ -118,16 +141,16 @@ export async function scanMarkets(tickers, options = {}) {
         levels = buildTradeLevels(rawFrames[0],side,price);
       }
       if (!levels) return null;
-      const confirmed = mode === 'scalp' ? status === 'SCALP' : status === 'STRONG' || status === 'MODERATE';
+      const confirmed = mode === 'normal' ? status === 'STRONG' || status === 'MODERATE' : status === 'SCALP';
       return {
         symbol:ticker.symbol, side, status, mode, entry:price, ...levels, missing, score,
-        trend:frames[mode === 'scalp' ? 1 : 2].trend, momentum:frames[0].momentum,
-        confirmation:confirmed ? (mode === 'scalp' ? 'SCALP · 1m ENTRY + 5m BIAS' : status + ' · CONFIRMED') :
-          (status === 'SCALP WATCH' ? 'SCALP WATCH · NOT CONFIRMED' : status === 'POTENTIAL' ? 'POTENTIAL · WATCH ONLY' : 'EARLY · NOT CONFIRMED'),
+        trend:frames[mode === 'normal' ? 2 : 1].trend, momentum:frames[mode === 'normal' ? 0 : 1].momentum,
+        confirmation:confirmed ? (mode === 'scalp' ? 'SCALP · 1m ENTRY + 5m BIAS' : mode === 'five' ? '5m SCALP · 5m ENTRY + 15m CONTEXT' : status + ' · CONFIRMED') :
+          (status === 'SCALP WATCH' ? (mode === 'five' ? '5m SCALP WATCH · NOT CONFIRMED' : 'SCALP WATCH · NOT CONFIRMED') : status === 'POTENTIAL' ? 'POTENTIAL · WATCH ONLY' : 'EARLY · NOT CONFIRMED'),
         consolidation:frames.some(frame => frame.consolidation === 'YES') ? 'YES' : 'NO',
         falseEntry:caution ? 'CAUTION' : 'CLEAR', price, change:Number(ticker.priceChangePercent),
-        volume:Number(ticker.quoteVolume), rsi5m:frames[mode === 'scalp' ? 1 : 0].rsi,
-        rsi15m:frames[mode === 'scalp' ? 2 : 1].rsi, confirmedAt:new Date().toISOString()
+        volume:Number(ticker.quoteVolume), rsi5m:frames[mode === 'normal' ? 0 : 1].rsi,
+        rsi15m:frames[mode === 'normal' ? 1 : 2].rsi, confirmedAt:new Date().toISOString()
       };
     } catch { dataErrors++; return null; }
   });
