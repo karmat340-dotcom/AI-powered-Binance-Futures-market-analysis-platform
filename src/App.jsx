@@ -110,6 +110,7 @@ export default function App(){
   const [leverage,setLeverage]=useState(()=>localStorage.getItem('tradeai-leverage')||'5');
   useEffect(()=>{localStorage.setItem('tradeai-leverage',leverage)},[leverage]);
   const [scannerError,setScannerError]=useState('');
+  const [scanStats,setScanStats]=useState(null);
   const [consensus,setConsensus]=useState(null);
   const [scanUpdated,setScanUpdated]=useState('');
   const tickerRef=useRef([]);
