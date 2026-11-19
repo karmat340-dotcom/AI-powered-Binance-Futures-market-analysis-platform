@@ -65,6 +65,7 @@ function PriceChart({bars,livePrice,symbol,frame}){
     chartRef.current=chart;seriesRef.current=series;
     const observer=new ResizeObserver(entries=>{if(entries[0]){chart.applyOptions({width:Math.max(320,Math.floor(entries[0].contentRect.width))});setDrawVersion(v=>v+1)}});
     observer.observe(host.current);
+    chart.timeScale().subscribeVisibleLogicalRangeChange(()=>setDrawVersion(v=>v+1));
     chart.subscribeCrosshairMove(param=>{
       const candle=param.seriesData.get(series);
       setHover(candle?{open:candle.open,high:candle.high,low:candle.low,close:candle.close}:null);
@@ -75,7 +76,7 @@ function PriceChart({bars,livePrice,symbol,frame}){
       const price=series.coordinateToPrice(param.point.y);
       if(price===null||!Number.isFinite(Number(price)))return;
       const point={time:Number(param.time),price:Number(price)};
-      const single=['horizontal','vertical','price-label'];
+      const single=['horizontal','vertical','price-label','entry','sl','tp1','tp2','tp3'];
       if(single.includes(active)){
         setDrawings(current=>[...current,{id:Date.now(),type:active,points:[point],text:active==='price-label'?'Note':''}]);
         setTool('cursor');return;
