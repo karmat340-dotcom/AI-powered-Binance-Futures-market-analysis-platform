@@ -5,7 +5,7 @@ const money=n=>Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maxi
 const priceFmt=n=>Number(n||0).toLocaleString('en-US',{maximumFractionDigits:Number(n)<1?8:2});
 const read=(key,fallback)=>{try{const v=JSON.parse(localStorage.getItem(key));return v??fallback}catch{return fallback}};
 
-export default function DemoTrading({symbol,price,tickers=[]}){
+export default function DemoTrading({symbol,price,tickers=[],mlModels={}}){
   const [balance,setBalance]=useState(()=>read('tradeai-demo-balance',10000));
   const [positions,setPositions]=useState(()=>read('tradeai-demo-positions',[]));
   const [history,setHistory]=useState(()=>read('tradeai-demo-history',[]));
@@ -14,6 +14,10 @@ export default function DemoTrading({symbol,price,tickers=[]}){
   const [stop,setStop]=useState('');
   const [target,setTarget]=useState('');
   const [notice,setNotice]=useState('');
+  const [autoEnabled,setAutoEnabled]=useState(()=>read('tradeai-demo-auto-enabled',false));
+  const [aiMode,setAiMode]=useState(()=>read('tradeai-demo-ai-mode','scalp'));
+  const [autoMargin,setAutoMargin]=useState('100');
+  const [autoLeverage,setAutoLeverage]=useState('1');
   const prices=useMemo(()=>Object.fromEntries(tickers.map(t=>[t.symbol,Number(t.lastPrice)])),[tickers]);
   const liveFor=p=>p.symbol===symbol&&price>0?price:(prices[p.symbol]||p.entry);
   const used=positions.reduce((s,p)=>s+p.margin,0);
@@ -22,6 +26,8 @@ export default function DemoTrading({symbol,price,tickers=[]}){
   useEffect(()=>{localStorage.setItem('tradeai-demo-balance',JSON.stringify(balance))},[balance]);
   useEffect(()=>{localStorage.setItem('tradeai-demo-positions',JSON.stringify(positions))},[positions]);
   useEffect(()=>{localStorage.setItem('tradeai-demo-history',JSON.stringify(history))},[history]);
+  useEffect(()=>{localStorage.setItem('tradeai-demo-auto-enabled',JSON.stringify(autoEnabled))},[autoEnabled]);
+  useEffect(()=>{localStorage.setItem('tradeai-demo-ai-mode',JSON.stringify(aiMode))},[aiMode]);
   useEffect(()=>{
     if(!tickers.length)return;
     const closed=[],keep=[];
@@ -50,6 +56,26 @@ export default function DemoTrading({symbol,price,tickers=[]}){
     const p={id:Date.now(),symbol,side,entry,margin:m,leverage:lev,stop:sl,target:tp,openedAt:new Date().toISOString()};
     setBalance(b=>b-m);setPositions(v=>[...v,p]);setNotice('Demo '+side+' position opened at '+priceFmt(entry)+'.');
   }
+  useEffect(()=>{
+    if(!autoEnabled||!price||!symbol||positions.some(p=>p.symbol===symbol))return;
+    const model=mlModels?.[aiMode];
+    const probs=model?.class_probabilities||{};
+    const long=Number(probs.LONG||0),short=Number(probs.SHORT||0);
+    const side=long>=0.60&&long-short>=0.10?'LONG':short>=0.60&&short-long>=0.10?'SHORT':null;
+    if(!side)return;
+    const key='tradeai-demo-auto-last-'+symbol+'-'+aiMode;
+    if(localStorage.getItem(key)===side)return;
+    const m=Number(autoMargin),lev=Number(autoLeverage);
+    if(!Number.isFinite(m)||m<=0||m>balance)return;
+    const riskDistance=price*0.006,rewardDistance=price*0.010;
+    const sl=side==='LONG'?price-riskDistance:price+riskDistance;
+    const tp=side==='LONG'?price+rewardDistance:price-rewardDistance;
+    const trade={id:Date.now(),symbol,side,entry:price,margin:m,leverage:lev,stop:sl,target:tp,openedAt:new Date().toISOString(),source:'AI AUTO '+aiMode.toUpperCase()};
+    localStorage.setItem(key,side);
+    setBalance(b=>b-m);
+    setPositions(v=>[...v,trade]);
+    setNotice('AI AUTO opened demo '+side+' on '+symbol+' · model probability '+(Math.max(long,short)*100).toFixed(1)+'%.');
+  },[autoEnabled,aiMode,mlModels,price,symbol,positions,balance,autoMargin,autoLeverage]);
   function close(p){
     const exit=liveFor(p),result=pnl(p,exit);
     setBalance(b=>Math.max(0,b+p.margin+result));
@@ -66,6 +92,7 @@ export default function DemoTrading({symbol,price,tickers=[]}){
       <div><small>UNREALIZED P/L</small><b className={unrealized>=0?'green':'red'}>{unrealized>=0?'+':''}{money(unrealized)} USDT</b></div>
       <div><small>USED MARGIN</small><b>{money(used)} USDT</b></div>
     </div>
+    <div className="demo-auto-box"><div><b>AI AUTO-PILOT · DEMO ONLY</b><small>Uses trained model probabilities. Opens only when LONG or SHORT probability is at least 60% and leads by 10 percentage points.</small></div><div className="demo-auto-controls"><label>Model<select value={aiMode} onChange={e=>setAiMode(e.target.value)}><option value="scalp">Scalp AI · 1m</option><option value="normal">Normal AI · 5m</option></select></label><label>Auto margin<input type="number" min="1" value={autoMargin} onChange={e=>setAutoMargin(e.target.value)}/></label><label>Leverage<select value={autoLeverage} onChange={e=>setAutoLeverage(e.target.value)}>{[1,2,3,5].map(x=><option key={x} value={x}>{x}x</option>)}</select></label><button className={autoEnabled?'auto-stop':'auto-start'} onClick={()=>{setAutoEnabled(v=>!v);setNotice(autoEnabled?'AI demo auto-trading paused.':'AI demo auto-trading enabled. It only trades this selected coin.')}}>{autoEnabled?'PAUSE AI AUTO':'START AI AUTO'}</button></div><div className="demo-auto-status">{autoEnabled?'AUTO-PILOT ON · '+symbol+' · waiting for a qualifying model signal':'AUTO-PILOT OFF · manual demo trading only'} · No live exchange orders.</div></div>
     <div className="demo-form">
       <div className="demo-form-head"><b>OPEN A POSITION</b><span>{symbol} · LIVE {price?priceFmt(price):'—'}</span></div>
       <label>Margin (USDT)<input type="number" min="1" step="1" value={margin} onChange={e=>setMargin(e.target.value)}/></label>
