@@ -37,17 +37,17 @@ function CryptoIcon({symbol,size=28}){
 }
 
 function PriceChart({bars,livePrice,symbol,frame}){
-  const host=useRef(null),chartRef=useRef(null),seriesRef=useRef(null),liveLineRef=useRef(null),levelLinesRef=useRef([]),toolRef=useRef('cursor'),drawingsSymbolRef=useRef(symbol);
-  const [hover,setHover]=useState(null),[tool,setTool]=useState('cursor');
-  toolRef.current=tool;
+  const host=useRef(null),chartRef=useRef(null),seriesRef=useRef(null),liveLineRef=useRef(null),levelLinesRef=useRef([]),toolRef=useRef('cursor'),pendingRef=useRef(null);
+  const [hover,setHover]=useState(null),[tool,setTool]=useState('cursor'),[drawVersion,setDrawVersion]=useState(0);
   const [drawings,setDrawings]=useState(()=>{
     try{return JSON.parse(localStorage.getItem('tradeai-drawings-'+symbol)||'[]')}catch{return []}
   });
   useEffect(()=>{
     try{setDrawings(JSON.parse(localStorage.getItem('tradeai-drawings-'+symbol)||'[]'))}catch{setDrawings([])}
-    drawingsSymbolRef.current=symbol;
+    pendingRef.current=null;setTool('cursor');
   },[symbol]);
-  useEffect(()=>{if(drawingsSymbolRef.current===symbol)localStorage.setItem('tradeai-drawings-'+symbol,JSON.stringify(drawings))},[drawings,symbol]);
+  useEffect(()=>{localStorage.setItem('tradeai-drawings-'+symbol,JSON.stringify(drawings))},[drawings,symbol]);
+  toolRef.current=tool;
   useEffect(()=>{
     if(!host.current)return;
     const chart=createChart(host.current,{
@@ -60,33 +60,37 @@ function PriceChart({bars,livePrice,symbol,frame}){
     });
     const series=chart.addSeries(CandlestickSeries,{
       upColor:'#39c99a',downColor:'#e66e7d',borderVisible:false,
-      wickUpColor:'#39c99a',wickDownColor:'#e66e7d',
-      priceLineVisible:true,lastValueVisible:true
+      wickUpColor:'#39c99a',wickDownColor:'#e66e7d',priceLineVisible:true,lastValueVisible:true
     });
     chartRef.current=chart;seriesRef.current=series;
-    const observer=new ResizeObserver(entries=>{if(entries[0])chart.applyOptions({width:Math.max(320,Math.floor(entries[0].contentRect.width))})});
+    const observer=new ResizeObserver(entries=>{if(entries[0]){chart.applyOptions({width:Math.max(320,Math.floor(entries[0].contentRect.width))});setDrawVersion(v=>v+1)}});
     observer.observe(host.current);
     chart.subscribeCrosshairMove(param=>{
       const candle=param.seriesData.get(series);
       setHover(candle?{open:candle.open,high:candle.high,low:candle.low,close:candle.close}:null);
     });
     chart.subscribeClick(param=>{
-      if(toolRef.current==='cursor'||!param.point)return;
+      const active=toolRef.current;
+      if(active==='cursor'||!param.point||!param.time)return;
       const price=series.coordinateToPrice(param.point.y);
       if(price===null||!Number.isFinite(Number(price)))return;
-      const type=toolRef.current;
-      const colors={entry:'#4aa8ff',sl:'#f07783',tp1:'#45d6a5',tp2:'#45d6a5',tp3:'#45d6a5',horizontal:'#d6b46a'};
-      setDrawings(current=>{
-        const item={id:Date.now(),type,price:Number(price),color:colors[type]||'#d6b46a'};
-        return type==='horizontal'?[...current,item]:[...current.filter(x=>x.type!==type),item];
-      });
+      const point={time:Number(param.time),price:Number(price)};
+      const single=['horizontal','vertical','price-label'];
+      if(single.includes(active)){
+        setDrawings(current=>[...current,{id:Date.now(),type:active,points:[point],text:active==='price-label'?'Note':''}]);
+        setTool('cursor');return;
+      }
+      if(!pendingRef.current){
+        pendingRef.current=point;setTool(active+'-second');return;
+      }
+      const first=pendingRef.current;pendingRef.current=null;
+      setDrawings(current=>[...current,{id:Date.now(),type:active,points:[first,point]}]);
       setTool('cursor');
     });
     return ()=>{observer.disconnect();chart.remove();chartRef.current=null;seriesRef.current=null;liveLineRef.current=null;levelLinesRef.current=[]};
   },[]);
   useEffect(()=>{
-    const series=seriesRef.current;
-    if(!series||!bars.length)return;
+    const series=seriesRef.current;if(!series||!bars.length)return;
     const data=bars.map(b=>({time:Math.floor(b.time/1000),open:b.open,high:b.high,low:b.low,close:b.close}));
     const last=data[data.length-1];
     if(livePrice>0&&last){last.high=Math.max(last.high,livePrice);last.low=Math.min(last.low,livePrice);last.close=livePrice;}
@@ -96,29 +100,48 @@ function PriceChart({bars,livePrice,symbol,frame}){
     if(liveLineRef.current)series.removePriceLine(liveLineRef.current);
     if(livePrice>0)liveLineRef.current=series.createPriceLine({price:livePrice,color:'#53dcb4',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:'LIVE'});
     if(chartRef.current&&!chartRef.current.__tradeAiFitted){chartRef.current.timeScale().fitContent();chartRef.current.__tradeAiFitted=true;}
+    setDrawVersion(v=>v+1);
   },[bars,livePrice,symbol,frame]);
   useEffect(()=>{
     const series=seriesRef.current;if(!series)return;
     levelLinesRef.current.forEach(line=>{try{series.removePriceLine(line)}catch{}});
-    levelLinesRef.current=drawings.map(item=>series.createPriceLine({
-      price:item.price,color:item.color,lineWidth:item.type==='horizontal'?1:2,
-      lineStyle:item.type==='horizontal'?2:0,axisLabelVisible:true,
-      title:(item.type==='sl'?'SL':item.type==='entry'?'ENTRY':item.type.toUpperCase())+' '+fmt(item.price)
+    const priceTypes=['entry','sl','tp1','tp2','tp3'];
+    levelLinesRef.current=drawings.filter(d=>priceTypes.includes(d.type)).map(item=>series.createPriceLine({
+      price:item.points[0].price,color:item.type==='sl'?'#f07783':item.type==='entry'?'#4aa8ff':'#45d6a5',
+      lineWidth:2,lineStyle:0,axisLabelVisible:true,title:item.type.toUpperCase()+' '+fmt(item.points[0].price)
     }));
+    setDrawVersion(v=>v+1);
   },[drawings,bars]);
-  const toolButtons=[['cursor','Cursor'],['entry','Entry'],['sl','Stop loss'],['tp1','TP1'],['tp2','TP2'],['tp3','TP3'],['horizontal','Horizontal']];
+  const xFor=time=>chartRef.current?.timeScale().timeToCoordinate(time);
+  const yFor=price=>seriesRef.current?.priceToCoordinate(price);
+  const w=host.current?.clientWidth||0,h=host.current?.clientHeight||520;
+  const svgItems=drawings.map(d=>{
+    const p=d.points||[],x1=xFor(p[0]?.time),y1=yFor(p[0]?.price);
+    if(x1==null||y1==null)return null;
+    if(['entry','sl','tp1','tp2','tp3'].includes(d.type))return null;
+    if(d.type==='horizontal')return <g key={d.id}><line x1="0" x2={w} y1={y1} y2={y1} stroke="#d6b46a" strokeDasharray="5 4"/><text x="8" y={y1-6} fill="#d6b46a" fontSize="11">HORIZONTAL · {fmt(p[0].price)}</text></g>;
+    if(d.type==='vertical')return <g key={d.id}><line x1={x1} x2={x1} y1="0" y2={h} stroke="#d6b46a" strokeDasharray="5 4"/></g>;
+    if(d.type==='price-label')return <g key={d.id}><circle cx={x1} cy={y1} r="4" fill="#e7c66e"/><text x={x1+8} y={y1-8} fill="#e7c66e" fontSize="12">NOTE · {fmt(p[0].price)}</text></g>;
+    if(p.length<2)return null;
+    const x2=xFor(p[1].time),y2=yFor(p[1].price);if(x2==null||y2==null)return null;
+    if(d.type==='rectangle')return <g key={d.id}><rect x={Math.min(x1,x2)} y={Math.min(y1,y2)} width={Math.abs(x2-x1)} height={Math.abs(y2-y1)} fill="#4aa8ff" fillOpacity=".09" stroke="#4aa8ff" strokeWidth="1.5"/><text x={Math.min(x1,x2)+5} y={Math.min(y1,y2)-5} fill="#8fc8ff" fontSize="11">RECTANGLE</text></g>;
+    if(d.type==='fib'){
+      const levels=[0,.236,.382,.5,.618,.786,1],top=Math.min(y1,y2),bottom=Math.max(y1,y2);
+      return <g key={d.id}>{levels.map((v,i)=>{const y=top+(bottom-top)*v;return <g key={v}><line x1={Math.min(x1,x2)} x2={Math.max(x1,x2)} y1={y} y2={y} stroke="#d6b46a" strokeWidth="1"/><text x={Math.max(x1,x2)+5} y={y+3} fill="#d6b46a" fontSize="10">{(1-v).toFixed(3)}</text></g>})}</g>;
+    }
+    const ray=d.type==='ray',dx=x2-x1,dy=y2-y1,ex=ray&&dx!==0?(dx>0?w:0):x2,ey=ray&&dx!==0?y1+(ex-x1)*dy/dx:y2;
+    return <g key={d.id}><line x1={x1} y1={y1} x2={ex} y2={ey} stroke="#4aa8ff" strokeWidth="2"/><circle cx={x1} cy={y1} r="3" fill="#4aa8ff"/><circle cx={x2} cy={y2} r="3" fill="#4aa8ff"/></g>;
+  });
+  const tools=[['cursor','Cursor'],['trendline','Trend line'],['ray','Ray'],['horizontal','Horizontal'],['vertical','Vertical'],['rectangle','Rectangle'],['fib','Fib retracement'],['entry','Entry'],['sl','Stop loss'],['tp1','TP1'],['tp2','TP2'],['tp3','TP3'],['price-label','Price note']];
+  const activeBase=tool.endsWith('-second')?tool.replace('-second',''):tool;
   const shown=hover;
   return <div className="pro-chart-wrap">
     <div className="chart-ohlc">
       {shown?<><span>O <b>{fmt(shown.open)}</b></span><span>H <b className="green">{fmt(shown.high)}</b></span><span>L <b className="red">{fmt(shown.low)}</b></span><span>C <b>{fmt(shown.close)}</b></span></>:<><span>{symbol} · {frame}</span><span>LIVE <b className="green">{livePrice?fmt(livePrice):'—'}</b></span></>}
     </div>
-    <div className="drawing-toolbar">
-      <span>DRAW</span>{toolButtons.map(([id,label])=><button key={id} className={tool===id?'active':''} onClick={()=>setTool(id)}>{label}</button>)}
-      <button className="drawing-clear" onClick={()=>setDrawings([])} disabled={!drawings.length}>Clear drawings</button>
-      <small>{tool==='cursor'?'Choose a tool, then click a chart price level':'Click chart to place '+(tool==='sl'?'stop loss':tool==='entry'?'entry':tool.toUpperCase())}</small>
-    </div>
-    <div ref={host} className={'light-chart '+(tool!=='cursor'?'drawing-active':'')}/>
-    {drawings.length>0&&<div className="drawing-level-list">{drawings.map(item=><div key={item.id}><span style={{color:item.color}}>{item.type==='sl'?'STOP LOSS':item.type==='entry'?'ENTRY':item.type.toUpperCase()}</span><b>{fmt(item.price)}</b><button onClick={()=>setDrawings(current=>current.filter(x=>x.id!==item.id))}>×</button></div>)}</div>}
+    <div className="drawing-toolbar"><span>DRAW</span>{tools.map(([id,label])=><button key={id} className={activeBase===id?'active':''} onClick={()=>{pendingRef.current=null;setTool(id)}}>{label}</button>)}<button className="drawing-clear" onClick={()=>setDrawings([])} disabled={!drawings.length}>Clear all</button><small>{tool==='cursor'?'Choose a drawing tool':tool.endsWith('-second')?'Click a second point to finish '+activeBase:'Select '+activeBase+' then click the chart'+(['trendline','ray','rectangle','fib'].includes(activeBase)?' twice':' once')}</small></div>
+    <div className="chart-drawing-stage"><div ref={host} className={'light-chart '+(tool!=='cursor'?'drawing-active':'')}/><svg className="chart-drawing-overlay" width={w} height={h} viewBox={'0 0 '+w+' '+h}>{svgItems}</svg></div>
+    {drawings.length>0&&<div className="drawing-level-list">{drawings.map(item=><div key={item.id}><span>{item.type.toUpperCase()}</span><b>{fmt(item.points[0].price)}</b><button onClick={()=>setDrawings(current=>current.filter(x=>x.id!==item.id))}>×</button></div>)}</div>}
   </div>;
 }
 
