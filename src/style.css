@@ -124,3 +124,15 @@
 .demo-history b{font:10px 'DM Mono'}
 .demo-history-empty{font-size:9px;color:#73869e;padding:10px}
 @media(max-width:760px){.demo-account{grid-template-columns:repeat(2,minmax(0,1fr))}.demo-form{grid-template-columns:repeat(2,minmax(0,1fr))}.demo-positions article{grid-template-columns:1fr 1fr}.demo-positions article>button{grid-column:1/-1}}
+
+.demo-auto-box{margin:14px 0;padding:14px;border:1px solid #31506b;background:#101f30;border-radius:8px}
+.demo-auto-box>div:first-child b{display:block;font-size:10px;letter-spacing:.8px;color:#d9e7f7}
+.demo-auto-box>div:first-child small{display:block;margin-top:6px;color:#91a4ba;font-size:9px;line-height:1.5}
+.demo-auto-controls{display:grid;grid-template-columns:1fr 1fr 1fr auto;align-items:end;gap:10px;margin-top:12px}
+.demo-auto-controls label{display:flex;flex-direction:column;gap:6px;color:#91a4ba;font-size:9px}
+.demo-auto-controls input,.demo-auto-controls select{width:100%;min-width:0;background:#0b1725;border:1px solid #2b4058;border-radius:5px;padding:9px;color:#e4edf8;font:11px 'DM Mono'}
+.demo-auto-controls button{padding:10px 14px;border-radius:5px;font-size:9px;font-weight:800;letter-spacing:.5px;cursor:pointer}
+.auto-start{background:#123b32;border:1px solid #2b8066;color:#66e2bd}
+.auto-stop{background:#3b2028;border:1px solid #85404e;color:#ff9ca8}
+.demo-auto-status{margin-top:10px;color:#91a4ba;font-size:9px}
+@media(max-width:760px){.demo-auto-controls{grid-template-columns:1fr 1fr}.demo-auto-controls button{min-height:36px}}
