@@ -17,7 +17,7 @@ MODEL_DIR = ROOT / "models"
 FEATURES = ["ret1", "ret3", "ret5", "ema_gap_9_21", "ema_gap_21_50", "rsi14", "atr_pct", "volume_ratio", "body_ratio", "range_pct", "close_location"]
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "LINKUSDT"]
 
-def fetch_history(symbol, interval, limit=8000):
+def fetch_binance_history(symbol, interval, limit):
     rows, end_time = [], None
     while len(rows) < limit:
         params = {"symbol": symbol, "interval": interval, "limit": min(1000, limit-len(rows))}
@@ -34,6 +34,50 @@ def fetch_history(symbol, interval, limit=8000):
             break
         time.sleep(0.12)
     return rows[-limit:]
+
+def fetch_bybit_history(symbol, interval, limit):
+    # Bybit V5 linear-perpetual public candles; normalized to Binance kline layout.
+    bybit_interval = "1" if interval == "1m" else "5"
+    interval_ms = 60_000 if interval == "1m" else 300_000
+    rows, end_time = [], None
+    while len(rows) < limit:
+        params = {"category": "linear", "symbol": symbol, "interval": bybit_interval,
+                  "limit": min(1000, limit-len(rows))}
+        if end_time is not None:
+            params["end"] = end_time
+        response = requests.get("https://api.bybit.com/v5/market/kline", params=params, timeout=25)
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("retCode") != 0:
+            raise RuntimeError(f"Bybit API error: {payload.get('retMsg', 'unknown error')}")
+        batch = payload.get("result", {}).get("list", [])
+        if not batch:
+            break
+        converted = [[int(c[0]), c[1], c[2], c[3], c[4], c[5],
+                      int(c[0]) + interval_ms - 1, c[6], 0, 0, 0, 0] for c in batch]
+        converted.sort(key=lambda c: int(c[0]))
+        rows = converted + rows
+        end_time = int(converted[0][0]) - 1
+        if len(batch) < params["limit"]:
+            break
+        time.sleep(0.12)
+    # Remove duplicate timestamps that can occur at pagination boundaries.
+    unique = {int(row[0]): row for row in rows}
+    return [unique[t] for t in sorted(unique)][-limit:]
+
+def fetch_history(symbol, interval, limit=8000):
+    try:
+        return fetch_binance_history(symbol, interval, limit)
+    except requests.RequestException as binance_error:
+        print(f"Binance history unavailable for {symbol} ({binance_error}); trying Bybit public futures data...", flush=True)
+        try:
+            rows = fetch_bybit_history(symbol, interval, limit)
+            if not rows:
+                raise RuntimeError("Bybit returned no candles")
+            print(f"Downloaded {len(rows)} {symbol} candles from Bybit fallback.", flush=True)
+            return rows
+        except Exception as bybit_error:
+            raise RuntimeError(f"Both market-data sources failed for {symbol}: Binance={binance_error}; Bybit={bybit_error}") from bybit_error
 
 def make_features(raw):
     df = pd.DataFrame(raw, columns=["t","o","h","l","c","v","ct","q","n","tb","tq","i"])
