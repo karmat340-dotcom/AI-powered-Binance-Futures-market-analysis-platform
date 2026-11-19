@@ -65,19 +65,61 @@ def fetch_bybit_history(symbol, interval, limit):
     unique = {int(row[0]): row for row in rows}
     return [unique[t] for t in sorted(unique)][-limit:]
 
+def fetch_binance_archive_history(symbol, interval, limit):
+    """
+    Download archived USD-M Futures klines from Binance's public data mirror.
+    This avoids geo-restricted REST API endpoints used by hosted CI runners.
+    Daily archives are published the following day, so begin with yesterday UTC.
+    """
+    rows = []
+    day = datetime.now(timezone.utc).date()
+    for _ in range(45):
+        day = day.fromordinal(day.toordinal() - 1)
+        date_text = day.strftime("%Y-%m-%d")
+        filename = f"{symbol}-{interval}-{date_text}.zip"
+        url = f"https://data.binance.vision/data/futures/um/daily/klines/{symbol}/{interval}/{filename}"
+        response = requests.get(url, timeout=35)
+        if response.status_code == 404:
+            continue
+        response.raise_for_status()
+        import csv
+        import io
+        import zipfile
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            csv_name = next((n for n in archive.namelist() if n.lower().endswith(".csv")), None)
+            if not csv_name:
+                continue
+            with archive.open(csv_name) as source:
+                for row in csv.reader(io.TextIOWrapper(source, encoding="utf-8")):
+                    if not row or not row[0].strip().isdigit():
+                        continue  # Ignore optional CSV header.
+                    if len(row) >= 12:
+                        rows.append(row[:12])
+        if len(rows) >= limit:
+            break
+        time.sleep(0.08)
+    rows.sort(key=lambda row: int(row[0]))
+    # Deduplicate timestamps and retain the most recent requested number.
+    unique = {int(row[0]): row for row in rows}
+    result = [unique[t] for t in sorted(unique)][-limit:]
+    if len(result) < min(limit, 3000):
+        raise RuntimeError(f"Public archive mirror returned only {len(result)} candles for {symbol} {interval}; need at least {min(limit, 3000)}")
+    return result
+
 def fetch_history(symbol, interval, limit=8000):
     try:
         return fetch_binance_history(symbol, interval, limit)
     except requests.RequestException as binance_error:
-        print(f"Binance history unavailable for {symbol} ({binance_error}); trying Bybit public futures data...", flush=True)
+        print(f"Binance REST API unavailable for {symbol}: {binance_error}", flush=True)
         try:
-            rows = fetch_bybit_history(symbol, interval, limit)
-            if not rows:
-                raise RuntimeError("Bybit returned no candles")
-            print(f"Downloaded {len(rows)} {symbol} candles from Bybit fallback.", flush=True)
+            rows = fetch_binance_archive_history(symbol, interval, limit)
+            print(f"Downloaded {len(rows)} {symbol} candles from Binance public archive mirror.", flush=True)
             return rows
-        except Exception as bybit_error:
-            raise RuntimeError(f"Both market-data sources failed for {symbol}: Binance={binance_error}; Bybit={bybit_error}") from bybit_error
+        except Exception as archive_error:
+            raise RuntimeError(
+                f"Could not download training candles for {symbol}: "
+                f"Binance REST={binance_error}; public archive={archive_error}"
+            ) from archive_error
 
 def make_features(raw):
     df = pd.DataFrame(raw, columns=["t","o","h","l","c","v","ct","q","n","tb","tq","i"])
