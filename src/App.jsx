@@ -37,16 +37,23 @@ function CryptoIcon({symbol,size=28}){
 }
 
 function PriceChart({bars,livePrice,symbol,frame}){
-  const host=useRef(null),chartRef=useRef(null),seriesRef=useRef(null),lineRef=useRef(null);
-  const [hover,setHover]=useState(null);
+  const host=useRef(null),chartRef=useRef(null),seriesRef=useRef(null),liveLineRef=useRef(null),levelLinesRef=useRef([]);
+  const [hover,setHover]=useState(null),[tool,setTool]=useState('cursor');
+  const [drawings,setDrawings]=useState(()=>{
+    try{return JSON.parse(localStorage.getItem('tradeai-drawings-'+symbol)||'[]')}catch{return []}
+  });
+  useEffect(()=>{
+    try{setDrawings(JSON.parse(localStorage.getItem('tradeai-drawings-'+symbol)||'[]'))}catch{setDrawings([])}
+  },[symbol]);
+  useEffect(()=>{localStorage.setItem('tradeai-drawings-'+symbol,JSON.stringify(drawings))},[drawings,symbol]);
   useEffect(()=>{
     if(!host.current)return;
     const chart=createChart(host.current,{
-      width:host.current.clientWidth,height:340,
+      width:host.current.clientWidth,height:520,
       layout:{background:{type:ColorType.Solid,color:'#0d1625'},textColor:'#8b9bb0',fontFamily:'DM Sans, sans-serif'},
       grid:{vertLines:{color:'#172438'},horzLines:{color:'#172438'}},
       rightPriceScale:{borderColor:'#26364b',autoScale:true},
-      timeScale:{borderColor:'#26364b',timeVisible:true,secondsVisible:false,rightOffset:5},
+      timeScale:{borderColor:'#26364b',timeVisible:true,secondsVisible:false,rightOffset:8},
       crosshair:{mode:CrosshairMode.Normal,vertLine:{color:'#6e829c',width:1,style:2},horzLine:{color:'#6e829c',width:1,style:2}}
     });
     const series=chart.addSeries(CandlestickSeries,{
@@ -61,31 +68,55 @@ function PriceChart({bars,livePrice,symbol,frame}){
       const candle=param.seriesData.get(series);
       setHover(candle?{open:candle.open,high:candle.high,low:candle.low,close:candle.close}:null);
     });
-    return ()=>{observer.disconnect();chart.remove();chartRef.current=null;seriesRef.current=null;lineRef.current=null};
-  },[]);
+    chart.subscribeClick(param=>{
+      if(tool==='cursor'||!param.point)return;
+      const price=series.coordinateToPrice(param.point.y);
+      if(price===null||!Number.isFinite(Number(price)))return;
+      const type=tool;
+      const colors={entry:'#4aa8ff',sl:'#f07783',tp1:'#45d6a5',tp2:'#45d6a5',tp3:'#45d6a5',horizontal:'#d6b46a'};
+      setDrawings(current=>{
+        const item={id:Date.now(),type,price:Number(price),color:colors[type]||'#d6b46a'};
+        return type==='horizontal'?[...current,item]:[...current.filter(x=>x.type!==type),item];
+      });
+      setTool('cursor');
+    });
+    return ()=>{observer.disconnect();chart.remove();chartRef.current=null;seriesRef.current=null;liveLineRef.current=null;levelLinesRef.current=[]};
+  },[tool]);
   useEffect(()=>{
     const series=seriesRef.current;
     if(!series||!bars.length)return;
-    const data=bars.map((b,i)=>({time:Math.floor(b.time/1000),open:b.open,high:b.high,low:b.low,close:b.close}));
+    const data=bars.map(b=>({time:Math.floor(b.time/1000),open:b.open,high:b.high,low:b.low,close:b.close}));
     const last=data[data.length-1];
-    if(livePrice>0&&last){
-      last.high=Math.max(last.high,livePrice);
-      last.low=Math.min(last.low,livePrice);
-      last.close=livePrice;
-    }
+    if(livePrice>0&&last){last.high=Math.max(last.high,livePrice);last.low=Math.min(last.low,livePrice);last.close=livePrice;}
     series.setData(data);
     const precision=livePrice<1?6:livePrice<100?4:2;
     series.applyOptions({priceFormat:{type:'price',precision,minMove:1/Math.pow(10,precision)}});
-    if(lineRef.current)series.removePriceLine(lineRef.current);
-    if(livePrice>0)lineRef.current=series.createPriceLine({price:livePrice,color:'#53dcb4',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:'LIVE'});
-    chartRef.current?.timeScale().fitContent();
+    if(liveLineRef.current)series.removePriceLine(liveLineRef.current);
+    if(livePrice>0)liveLineRef.current=series.createPriceLine({price:livePrice,color:'#53dcb4',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:'LIVE'});
+    if(chartRef.current&&!chartRef.current.__tradeAiFitted){chartRef.current.timeScale().fitContent();chartRef.current.__tradeAiFitted=true;}
   },[bars,livePrice,symbol,frame]);
+  useEffect(()=>{
+    const series=seriesRef.current;if(!series)return;
+    levelLinesRef.current.forEach(line=>{try{series.removePriceLine(line)}catch{}});
+    levelLinesRef.current=drawings.map(item=>series.createPriceLine({
+      price:item.price,color:item.color,lineWidth:item.type==='horizontal'?1:2,
+      lineStyle:item.type==='horizontal'?2:0,axisLabelVisible:true,
+      title:(item.type==='sl'?'SL':item.type==='entry'?'ENTRY':item.type.toUpperCase())+' '+fmt(item.price)
+    }));
+  },[drawings,bars]);
+  const toolButtons=[['cursor','Cursor'],['entry','Entry'],['sl','Stop loss'],['tp1','TP1'],['tp2','TP2'],['tp3','TP3'],['horizontal','Horizontal']];
   const shown=hover;
   return <div className="pro-chart-wrap">
     <div className="chart-ohlc">
       {shown?<><span>O <b>{fmt(shown.open)}</b></span><span>H <b className="green">{fmt(shown.high)}</b></span><span>L <b className="red">{fmt(shown.low)}</b></span><span>C <b>{fmt(shown.close)}</b></span></>:<><span>{symbol} · {frame}</span><span>LIVE <b className="green">{livePrice?fmt(livePrice):'—'}</b></span></>}
     </div>
-    <div ref={host} className="light-chart"/>
+    <div className="drawing-toolbar">
+      <span>DRAW</span>{toolButtons.map(([id,label])=><button key={id} className={tool===id?'active':''} onClick={()=>setTool(id)}>{label}</button>)}
+      <button className="drawing-clear" onClick={()=>setDrawings([])} disabled={!drawings.length}>Clear drawings</button>
+      <small>{tool==='cursor'?'Choose a tool, then click a chart price level':'Click chart to place '+(tool==='sl'?'stop loss':tool==='entry'?'entry':tool.toUpperCase())}</small>
+    </div>
+    <div ref={host} className={'light-chart '+(tool!=='cursor'?'drawing-active':'')}/>
+    {drawings.length>0&&<div className="drawing-level-list">{drawings.map(item=><div key={item.id}><span style={{color:item.color}}>{item.type==='sl'?'STOP LOSS':item.type==='entry'?'ENTRY':item.type.toUpperCase()}</span><b>{fmt(item.price)}</b><button onClick={()=>setDrawings(current=>current.filter(x=>x.id!==item.id))}>×</button></div>)}</div>}
   </div>;
 }
 
