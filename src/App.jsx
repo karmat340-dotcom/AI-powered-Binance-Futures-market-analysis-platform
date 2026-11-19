@@ -36,14 +36,20 @@ function CryptoIcon({symbol,size=28}){
   </span>;
 }
 
+function cleanDrawings(value){
+  if(!Array.isArray(value))return [];
+  return value.filter(d=>d&&typeof d==='object'&&Array.isArray(d.points)&&d.points.length>0&&d.points[0]&&Number.isFinite(Number(d.points[0].price))&&Number.isFinite(Number(d.points[0].time))&&['trendline','ray','horizontal','vertical','rectangle','fib','entry','sl','tp1','tp2','tp3','price-label'].includes(d.type))
+    .map(d=>({...d,points:d.points.slice(0,2).filter(p=>p&&Number.isFinite(Number(p.price))&&Number.isFinite(Number(p.time))).map(p=>({time:Number(p.time),price:Number(p.price)}))}))
+    .filter(d=>d.points.length>0&&(!['trendline','ray','rectangle','fib'].includes(d.type)||d.points.length===2));
+}
 function PriceChart({bars,livePrice,symbol,frame}){
   const host=useRef(null),chartRef=useRef(null),seriesRef=useRef(null),liveLineRef=useRef(null),levelLinesRef=useRef([]),toolRef=useRef('cursor'),pendingRef=useRef(null);
   const [hover,setHover]=useState(null),[tool,setTool]=useState('cursor'),[drawVersion,setDrawVersion]=useState(0);
   const [drawings,setDrawings]=useState(()=>{
-    try{return JSON.parse(localStorage.getItem('tradeai-drawings-'+symbol)||'[]')}catch{return []}
+    try{return cleanDrawings(JSON.parse(localStorage.getItem('tradeai-drawings-'+symbol)||'[]'))}catch{return []}
   });
   useEffect(()=>{
-    try{setDrawings(JSON.parse(localStorage.getItem('tradeai-drawings-'+symbol)||'[]'))}catch{setDrawings([])}
+    try{setDrawings(cleanDrawings(JSON.parse(localStorage.getItem('tradeai-drawings-'+symbol)||'[]')))}catch{setDrawings([])}
     pendingRef.current=null;setTool('cursor');
   },[symbol]);
   useEffect(()=>{localStorage.setItem('tradeai-drawings-'+symbol,JSON.stringify(drawings))},[drawings,symbol]);
@@ -107,7 +113,7 @@ function PriceChart({bars,livePrice,symbol,frame}){
     const series=seriesRef.current;if(!series)return;
     levelLinesRef.current.forEach(line=>{try{series.removePriceLine(line)}catch{}});
     const priceTypes=['entry','sl','tp1','tp2','tp3'];
-    levelLinesRef.current=drawings.filter(d=>priceTypes.includes(d.type)).map(item=>series.createPriceLine({
+    levelLinesRef.current=drawings.filter(d=>priceTypes.includes(d.type)&&d.points?.[0]&&Number.isFinite(Number(d.points[0].price))).map(item=>series.createPriceLine({
       price:item.points[0].price,color:item.type==='sl'?'#f07783':item.type==='entry'?'#4aa8ff':'#45d6a5',
       lineWidth:2,lineStyle:0,axisLabelVisible:true,title:item.type.toUpperCase()+' '+fmt(item.points[0].price)
     }));
@@ -142,7 +148,7 @@ function PriceChart({bars,livePrice,symbol,frame}){
     </div>
     <div className="drawing-toolbar"><span>DRAW</span>{tools.map(([id,label])=><button key={id} className={activeBase===id?'active':''} onClick={()=>{pendingRef.current=null;setTool(id)}}>{label}</button>)}<button className="drawing-clear" onClick={()=>setDrawings([])} disabled={!drawings.length}>Clear all</button><small>{tool==='cursor'?'Choose a drawing tool':tool.endsWith('-second')?'Click a second point to finish '+activeBase:'Select '+activeBase+' then click the chart'+(['trendline','ray','rectangle','fib'].includes(activeBase)?' twice':' once')}</small></div>
     <div className="chart-drawing-stage"><div ref={host} className={'light-chart '+(tool!=='cursor'?'drawing-active':'')}/><svg className="chart-drawing-overlay" width={w} height={h} viewBox={'0 0 '+w+' '+h}>{svgItems}</svg></div>
-    {drawings.length>0&&<div className="drawing-level-list">{drawings.map(item=><div key={item.id}><span>{item.type.toUpperCase()}</span><b>{fmt(item.points[0].price)}</b><button onClick={()=>setDrawings(current=>current.filter(x=>x.id!==item.id))}>×</button></div>)}</div>}
+    {drawings.filter(item=>item?.points?.[0]).length>0&&<div className="drawing-level-list">{drawings.filter(item=>item?.points?.[0]).map(item=><div key={item.id}><span>{item.type.toUpperCase()}</span><b>{fmt(item.points[0].price)}</b><button onClick={()=>setDrawings(current=>current.filter(x=>x.id!==item.id))}>×</button></div>)}</div>}
   </div>;
 }
 
