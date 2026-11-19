@@ -153,3 +153,12 @@
 .drawing-level-list b{color:#e0e9f5;font-weight:600}
 .drawing-level-list button{border:0;background:transparent;color:#f18b9a;font-size:16px;cursor:pointer;line-height:1}
 @media(max-width:760px){.light-chart{height:390px}.drawing-toolbar{gap:5px}.drawing-toolbar button{padding:7px 8px;font-size:8px}.drawing-toolbar button.drawing-clear{margin-left:0}}
+
+/* Advanced drawing overlay */
+.chart-drawing-stage{position:relative;width:100%;overflow:hidden}
+.chart-drawing-stage .light-chart{height:520px}
+.chart-drawing-overlay{position:absolute;inset:0;z-index:3;pointer-events:none;overflow:visible}
+.drawing-toolbar{align-items:center;gap:6px;max-height:150px;overflow-y:auto}
+.drawing-toolbar button{white-space:nowrap}
+.drawing-level-list>div span{font-size:9px;color:#8ea4bd;letter-spacing:.3px}
+@media(max-width:760px){.chart-drawing-stage .light-chart{height:390px}.drawing-toolbar{max-height:190px}}
