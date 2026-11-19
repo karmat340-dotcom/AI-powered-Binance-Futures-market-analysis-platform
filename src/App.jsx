@@ -4,6 +4,8 @@ import {createChart,CandlestickSeries,ColorType,CrosshairMode} from 'lightweight
 import {scanMarkets} from './scanner.js';
 import {analyseMarket,buildTradeLevels,getDirectionalBias} from './analysis.js';
 
+const ML_API='https://trade-ai-ml-dj2r.onrender.com';
+
 const API='https://fapi.binance.com';
 const FRAMES=['1m','3m','5m','15m','30m','1h','2h','4h','6h','8h','12h','1d','3d','1w','1M'];
 const WATCH=['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','LINKUSDT'];
@@ -340,6 +342,31 @@ export default function App(){
     return ()=>{cancelled=true;clearInterval(interval)};
   },[symbol,last]);
   const [scalpConsensus,setScalpConsensus]=useState(null);
+  const [mlModels,setMlModels]=useState({scalp:null,normal:null});
+  const [mlLoading,setMlLoading]=useState(true);
+  const [mlError,setMlError]=useState('');
+  useEffect(()=>{
+    let cancelled=false,running=false;
+    const loadMlModels=async()=>{
+      if(running)return;
+      running=true;
+      try{
+        const [scalpResponse,normalResponse]=await Promise.all([
+          fetch(ML_API+'/predict?symbol='+symbol+'&mode=scalp'),
+          fetch(ML_API+'/predict?symbol='+symbol+'&mode=normal')
+        ]);
+        if(!scalpResponse.ok||!normalResponse.ok)throw new Error('ML service temporarily unavailable');
+        const [scalp,normal]=await Promise.all([scalpResponse.json(),normalResponse.json()]);
+        if(!cancelled){setMlModels({scalp,normal});setMlError('');}
+      }catch(error){
+        if(!cancelled)setMlError(error.message||'Unable to load model results');
+      }finally{running=false;if(!cancelled)setMlLoading(false);}
+    };
+    setMlLoading(true);
+    loadMlModels();
+    const timer=setInterval(loadMlModels,30000);
+    return ()=>{cancelled=true;clearInterval(timer)};
+  },[symbol]);
   useEffect(()=>{
     let cancelled=false,running=false;
     const checkScalp=async()=>{
@@ -479,6 +506,29 @@ export default function App(){
           <div className="chart-footer"><span><i className="pulse"/> {busy?'Updating market data':'Market data connected'}</span><span>Updated {updated||'—'}</span></div>{error&&<div className="error">{error}</div>}
         </section>
         <section className="panel signal-panel"><div className="panel-head"><div><h2><Zap/> AI signal analysis</h2><small>Shared 5m + 15m + 1h confirmation · same rules as scanner</small></div><span className="beta">BETA</span></div><div className={'signal-box '+(signalDisplay.startsWith('EARLY')?'wait':signal.toLowerCase())}><div className="signal-top"><span>MARKET BIAS</span><span className="signal-dot"/></div><div className="signal-word">{signalDisplay}</div><p>{signalDisplay.startsWith('EARLY')?'Directional setup forming. Watch only — full entry confirmation is still missing.':signal==='WAIT'?(analysis?.reasons?.[0]||'Waiting for matching 5m, 15m and 1h confirmation.'):signal==='LONG'?(analysis?.signalTier==='MODERATE'?'15m and 1h confirm LONG; 5m supports direction.':'All three timeframes confirm LONG.'):(analysis?.signalTier==='MODERATE'?'15m and 1h confirm SHORT; 5m supports direction.':'All three timeframes confirm SHORT.')}</p></div>{analysis&&<div className="analysis-checks"><div><span>Trend direction</span><b className={analysis.trend==='UPTREND'?'green':analysis.trend==='DOWNTREND'?'red':'neutral'}>{analysis.trend}</b></div><div><span>Momentum strength</span><b>{analysis.momentum}</b></div><div><span>Entry confirmation</span><b className={analysis.confirmation==='CONFIRMED'?'green':'neutral'}>{analysis.confirmation}</b></div><div><span>Consolidation</span><b className={analysis.consolidation==='YES'?'red':'green'}>{analysis.consolidation}</b></div><div><span>False-entry filter</span><b className={analysis.falseEntry==='CLEAR'?'green':'red'}>{analysis.falseEntry}</b></div><div><span>Decision</span><b className={signal==='WAIT'?'neutral':signal==='LONG'?'green':'red'}>{signal==='WAIT'?(analysis.earlySide?'EARLY '+analysis.earlySide+' · confirmation pending':'WAIT · '+analysis.reasons[0]):signal}</b></div></div>}{signalConflict&&<div className="trade-warning"><b>⚠ SIGNAL CONFLICT</b><span>Active {displayTrade.side} trade, but the latest market bias is {signal}. Review the position; no automatic action is taken.</span></div>}<div className="confidence"><div><span>Confluence score</span><b>{score||'—'}<small>/100</small></b></div><div className="meter"><i style={{width:score+'%'}}/></div><small className="disclaimer">Heuristic score — not a probability of profit.</small></div><div className="levels"><div><span>{displayTrade?'ACTIVE '+displayTrade.side+' · '+displayTrade.symbol:'Selected market entry'}</span><b>{displayTrade?fmt(displayTrade.entry):(last?fmt(last):'—')}</b></div><div><span>Live P/L · {displayTrade?'since entry':'no active position'}</span><b className={tradePnl>=0?'green':'red'}>{displayTrade?(tradePnl>=0?'+':'')+tradePnl.toFixed(2)+'%':'—'}</b></div><div><span>Stop loss · {displayTrade?.stopMethod||'ATR + swing structure'}</span><b className="red">{displayTrade?fmt(displayTrade.sl):'Await confirmation'}</b></div><div><span>Risk : Reward · TP1 / TP2 / TP3</span><b>{displayTrade?'1:1.5 / 1:2 / 1:3':'Await confirmation'}</b></div><div><span>Take profit 1 / 2 / 3</span><b className="green">{displayTrade?[displayTrade.tp1,displayTrade.tp2,displayTrade.tp3].map(fmt).join(' / '):'Await confirmation'}</b></div><div><span>Trade status · ${activeTradeCount} active across coins</span><b>{displayTrade?'ACTIVE · '+displayTrade.frame:'No active trade for this coin'}</b></div></div><div className="signal-foot"><ShieldCheck/> No orders are placed. Analysis only.</div></section>
+        <section className="panel ml-model-panel">
+          <div className="panel-head"><div><h2><Activity/> Trained ML models</h2><small>Live model predictions · {symbol} · refreshes every 30 seconds</small></div><span className="beta">ML LIVE</span></div>
+          {mlError&&<div className="error">{mlError}</div>}
+          {['normal','scalp'].map(mode=>{
+            const result=mlModels[mode],metrics=result?.test_metrics||{},report=metrics.report||{};
+            const pct=value=>Number.isFinite(Number(value))?(Number(value)*100).toFixed(1)+'%':'—';
+            const direction=result?.side||'WAIT';
+            return <div className="ml-model-card" key={mode}>
+              <div className="ml-model-title"><b>{mode==='normal'?'NORMAL AI · 5M':'SCALP AI · 1M'}</b><strong className={direction==='LONG'?'green':direction==='SHORT'?'red':'neutral'}>{mlLoading&&!result?'LOADING':direction}</strong></div>
+              {result?<><div className="ml-probabilities">
+                {['LONG','SHORT','HOLD'].map(label=><div key={label}><small>{label}</small><b className={label==='LONG'?'green':label==='SHORT'?'red':'neutral'}>{pct(result.class_probabilities?.[label])}</b></div>)}
+              </div><div className="ml-metrics-grid">
+                <div><small>Test accuracy</small><b>{pct(metrics.accuracy)}</b></div>
+                <div><small>Balanced accuracy</small><b>{pct(metrics.balanced_accuracy)}</b></div>
+                <div><small>LONG precision</small><b>{pct(report.LONG?.precision)}</b></div>
+                <div><small>SHORT precision</small><b>{pct(report.SHORT?.precision)}</b></div>
+                <div><small>HOLD precision</small><b>{pct(report.HOLD?.precision)}</b></div>
+                <div><small>Test samples</small><b>{metrics.test_rows?.toLocaleString?.()||'—'}</b></div>
+              </div><div className="ml-source"><span>Data: {result.source||'—'}</span><span>Trained: {result.model_trained_at?new Date(result.model_trained_at).toLocaleString():'—'}</span></div></>:<div className="scanner-empty">{mlLoading?'Loading model results…':'No model data available'}</div>}
+            </div>;
+          })}
+          <div className="scanner-foot">Historical test metrics are not live win rates. Directional precision measures how often past LONG/SHORT predictions were correct. WAIT is not an entry signal; paper-test before risking funds.</div>
+        </section>
         <section className="panel signal-panel scalp-signal-panel"><div className="panel-head"><div><h2><Zap/> AI scalp signal</h2><small>Independent 1m + 5m + 15m analysis · short-term entries</small></div><span className="beta">SCALP</span></div><div className={'signal-box '+(scalpAnalysis?.side==='LONG'?'long':scalpAnalysis?.side==='SHORT'?'short':'wait')}><div className="signal-top"><span>SCALP MARKET BIAS</span><span className="signal-dot"/></div><div className="signal-word">{scalpAnalysis?.side&&scalpAnalysis.side!=='WAIT'?'SCALP '+scalpAnalysis.side:scalpAnalysis?.earlySide?'EARLY '+scalpAnalysis.earlySide:'WAIT'}</div><p>{scalpAnalysis?.side&&scalpAnalysis.side!=='WAIT'?'1m entry trigger and 5m directional bias are aligned; 15m is not strongly opposing.':scalpAnalysis?.reasons?.[0]||'Loading independent scalp analysis…'}</p></div>{scalpAnalysis&&<><div className="analysis-checks"><div><span>5m trend bias</span><b>{scalpAnalysis.trend}</b></div><div><span>1m momentum</span><b>{scalpAnalysis.momentum}</b></div><div><span>Entry confirmation</span><b className={scalpAnalysis.side!=='WAIT'?'green':'neutral'}>{scalpAnalysis.confirmation}</b></div><div><span>1m consolidation</span><b className={scalpAnalysis.consolidation==='YES'?'red':'green'}>{scalpAnalysis.consolidation}</b></div><div><span>1m false-entry filter</span><b className={scalpAnalysis.falseEntry==='CLEAR'?'green':'red'}>{scalpAnalysis.falseEntry}</b></div><div><span>Decision</span><b className={scalpAnalysis.side==='WAIT'?'neutral':scalpAnalysis.side==='LONG'?'green':'red'}>{scalpAnalysis.side==='WAIT'?(scalpAnalysis.earlySide?'EARLY '+scalpAnalysis.earlySide+' · WATCH ONLY':'WAIT'):scalpAnalysis.side}</b></div></div><div className="confidence"><div><span>Scalp confluence score</span><b>{scalpAnalysis.score||'—'}<small>/100</small></b></div><div className="meter"><i style={{width:scalpAnalysis.score+'%'}}/></div><small className="disclaimer">Short-term rule-based score — not a probability of profit.</small></div></>}</section>
         <section className="panel indicators"><div className="panel-head"><div><h2><Gauge/> Technical indicators</h2><small>Based on the same multi-timeframe confirmation</small></div></div><div className="indicator-grid"><div><small>RSI (14)</small><b>{ind?ind.rsi.toFixed(1):'—'}</b><span className={ind?(ind.rsi>70?'red':ind.rsi<30?'green':'neutral'):'neutral'}>{ind?(ind.rsi>70?'Overbought':ind.rsi<30?'Oversold':'Neutral'):'Waiting for data'}</span></div><div><small>EMA 9</small><b>{ind?fmt(ind.e9):'—'}</b><span>Short-term trend</span></div><div><small>EMA 21</small><b>{ind?fmt(ind.e21):'—'}</b><span>Trend direction</span></div><div><small>EMA 50</small><b>{ind?fmt(ind.e50):'—'}</b><span>Market structure</span></div></div></section>
         <section ref={scannerSectionRef} className="panel scanner-panel"><div className="panel-head"><div><h2><Zap/> Automatic market scanner</h2><small>{scannerMode==='scalp'?'1m + 5m + 15m · 1m-entry scalp setups':scannerMode==='five'?'5m entry + 15m context · dedicated 5-minute scalping':'Top 40 USDT pairs · 5m + 15m + 1h setups'}</small></div><div className="scanner-controls"><div className="mode-toggle"><button className={scannerMode==='normal'?'selected':''} onClick={()=>setScannerMode('normal')}>NORMAL</button><button className={scannerMode==='scalp'?'selected':''} onClick={()=>setScannerMode('scalp')}>1M SCALP</button><button className={scannerMode==='five'?'selected':''} onClick={()=>setScannerMode('five')}>5M SCALP</button></div><label htmlFor="leverage-select">LEVERAGE</label><select id="leverage-select" value={leverage} onChange={e=>setLeverage(e.target.value)}>{[1,2,3,5,10,20,50,100,125].map(x=><option key={x} value={x}>{x}x</option>)}</select><span className="beta">{scannerBusy?'SCANNING':'AUTO SCAN'}</span></div></div>
