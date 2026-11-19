@@ -17,13 +17,34 @@ MODEL_DIR = ROOT / "models"
 FEATURES = ["ret1", "ret3", "ret5", "ema_gap_9_21", "ema_gap_21_50", "rsi14", "atr_pct", "volume_ratio", "body_ratio", "range_pct", "close_location"]
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "LINKUSDT"]
 
+def resilient_get(url, *, params=None, timeout=35, attempts=6):
+    """Retry temporary network resets, throttling, and server errors."""
+    last_error = None
+    for attempt in range(attempts):
+        try:
+            response = requests.get(url, params=params, timeout=timeout)
+            if response.status_code == 404:
+                return response
+            if response.status_code == 429 or response.status_code >= 500:
+                response.raise_for_status()
+            response.raise_for_status()
+            return response
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt == attempts - 1:
+                break
+            delay = min(2 ** attempt, 20)
+            print(f"Temporary download error ({attempt + 1}/{attempts}) for {url}: {exc}; retrying in {delay}s", flush=True)
+            time.sleep(delay)
+    raise last_error
+
 def fetch_binance_history(symbol, interval, limit):
     rows, end_time = [], None
     while len(rows) < limit:
         params = {"symbol": symbol, "interval": interval, "limit": min(1000, limit-len(rows))}
         if end_time is not None:
             params["endTime"] = end_time
-        response = requests.get(f"{API}/fapi/v1/klines", params=params, timeout=25)
+        response = resilient_get(f"{API}/fapi/v1/klines", params=params, timeout=25)
         response.raise_for_status()
         batch = response.json()
         if not batch:
@@ -45,7 +66,7 @@ def fetch_bybit_history(symbol, interval, limit):
                   "limit": min(1000, limit-len(rows))}
         if end_time is not None:
             params["end"] = end_time
-        response = requests.get("https://api.bybit.com/v5/market/kline", params=params, timeout=25)
+        response = resilient_get("https://api.bybit.com/v5/market/kline", params=params, timeout=25)
         response.raise_for_status()
         payload = response.json()
         if payload.get("retCode") != 0:
@@ -78,7 +99,7 @@ def fetch_binance_archive_history(symbol, interval, limit):
         date_text = day.strftime("%Y-%m-%d")
         filename = f"{symbol}-{interval}-{date_text}.zip"
         url = f"https://data.binance.vision/data/futures/um/daily/klines/{symbol}/{interval}/{filename}"
-        response = requests.get(url, timeout=35)
+        response = resilient_get(url, timeout=35)
         if response.status_code == 404:
             continue
         response.raise_for_status()
