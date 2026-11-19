@@ -136,3 +136,20 @@
 .auto-stop{background:#3b2028;border:1px solid #85404e;color:#ff9ca8}
 .demo-auto-status{margin-top:10px;color:#91a4ba;font-size:9px}
 @media(max-width:760px){.demo-auto-controls{grid-template-columns:1fr 1fr}.demo-auto-controls button{min-height:36px}}
+
+/* Expanded chart workspace and drawing tools */
+.chart-panel{grid-column:1/-1}
+.light-chart{height:520px;cursor:crosshair}
+.light-chart.drawing-active{cursor:crosshair}
+.drawing-toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid #1b2a3d}
+.drawing-toolbar>span{font:700 9px 'DM Mono';letter-spacing:1px;color:#71849b;margin-right:5px}
+.drawing-toolbar button{border:1px solid #293c53;background:#101e30;color:#9aabc0;border-radius:5px;padding:7px 9px;font:600 9px 'DM Sans';cursor:pointer}
+.drawing-toolbar button:hover,.drawing-toolbar button.active{background:#153b36;border-color:#347d68;color:#61e2bd}
+.drawing-toolbar button.drawing-clear{margin-left:auto;color:#f18b9a;border-color:#593542}
+.drawing-toolbar button:disabled{opacity:.4;cursor:not-allowed}
+.drawing-toolbar small{flex-basis:100%;color:#73869d;font-size:9px;padding:2px 0 0}
+.drawing-level-list{display:flex;gap:7px;flex-wrap:wrap;padding:9px 2px 2px}
+.drawing-level-list>div{display:flex;align-items:center;gap:9px;padding:6px 9px;border:1px solid #26374d;background:#101d2d;border-radius:5px;font:9px 'DM Mono'}
+.drawing-level-list b{color:#e0e9f5;font-weight:600}
+.drawing-level-list button{border:0;background:transparent;color:#f18b9a;font-size:16px;cursor:pointer;line-height:1}
+@media(max-width:760px){.light-chart{height:390px}.drawing-toolbar{gap:5px}.drawing-toolbar button{padding:7px 8px;font-size:8px}.drawing-toolbar button.drawing-clear{margin-left:0}}
