@@ -37,15 +37,17 @@ function CryptoIcon({symbol,size=28}){
 }
 
 function PriceChart({bars,livePrice,symbol,frame}){
-  const host=useRef(null),chartRef=useRef(null),seriesRef=useRef(null),liveLineRef=useRef(null),levelLinesRef=useRef([]);
+  const host=useRef(null),chartRef=useRef(null),seriesRef=useRef(null),liveLineRef=useRef(null),levelLinesRef=useRef([]),toolRef=useRef('cursor'),drawingsSymbolRef=useRef(symbol);
   const [hover,setHover]=useState(null),[tool,setTool]=useState('cursor');
+  toolRef.current=tool;
   const [drawings,setDrawings]=useState(()=>{
     try{return JSON.parse(localStorage.getItem('tradeai-drawings-'+symbol)||'[]')}catch{return []}
   });
   useEffect(()=>{
     try{setDrawings(JSON.parse(localStorage.getItem('tradeai-drawings-'+symbol)||'[]'))}catch{setDrawings([])}
+    drawingsSymbolRef.current=symbol;
   },[symbol]);
-  useEffect(()=>{localStorage.setItem('tradeai-drawings-'+symbol,JSON.stringify(drawings))},[drawings,symbol]);
+  useEffect(()=>{if(drawingsSymbolRef.current===symbol)localStorage.setItem('tradeai-drawings-'+symbol,JSON.stringify(drawings))},[drawings,symbol]);
   useEffect(()=>{
     if(!host.current)return;
     const chart=createChart(host.current,{
@@ -69,10 +71,10 @@ function PriceChart({bars,livePrice,symbol,frame}){
       setHover(candle?{open:candle.open,high:candle.high,low:candle.low,close:candle.close}:null);
     });
     chart.subscribeClick(param=>{
-      if(tool==='cursor'||!param.point)return;
+      if(toolRef.current==='cursor'||!param.point)return;
       const price=series.coordinateToPrice(param.point.y);
       if(price===null||!Number.isFinite(Number(price)))return;
-      const type=tool;
+      const type=toolRef.current;
       const colors={entry:'#4aa8ff',sl:'#f07783',tp1:'#45d6a5',tp2:'#45d6a5',tp3:'#45d6a5',horizontal:'#d6b46a'};
       setDrawings(current=>{
         const item={id:Date.now(),type,price:Number(price),color:colors[type]||'#d6b46a'};
@@ -81,7 +83,7 @@ function PriceChart({bars,livePrice,symbol,frame}){
       setTool('cursor');
     });
     return ()=>{observer.disconnect();chart.remove();chartRef.current=null;seriesRef.current=null;liveLineRef.current=null;levelLinesRef.current=[]};
-  },[tool]);
+  },[]);
   useEffect(()=>{
     const series=seriesRef.current;
     if(!series||!bars.length)return;
