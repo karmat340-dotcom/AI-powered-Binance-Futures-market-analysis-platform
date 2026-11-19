@@ -304,7 +304,7 @@ export default function App(){
         const bias1h=getDirectionalBias(frames[2]);
         const higherDirection=bias15m&&bias15m===bias1h?bias15m:null;
         const five=frames[0];
-        const fiveSupports=higherDirection==='LONG'?five?.falseEntry==='CLEAR'&&five?.momentum!=='BEARISH'&&five?.trend!=='DOWNTREND':higherDirection==='SHORT'?five?.falseEntry==='CLEAR'&&five?.momentum!=='BULLISH'&&five?.trend!=='UPTREND':false;
+        const fiveSupports=getDirectionalBias(five)===higherDirection&&five?.falseEntry==='CLEAR'&&!five?.consolidation;
         // Flexible moderate setup: remove the extra 15m breakout-confirmation gate,
         // while retaining higher-timeframe alignment and false-entry protection.
         const moderate=!aligned&&!!higherDirection&&frames[1]?.falseEntry==='CLEAR'&&frames[2]?.falseEntry==='CLEAR'&&fiveSupports;
@@ -360,8 +360,8 @@ export default function App(){
         const fiveBias=getDirectionalBias(five);
         const fifteenOpposesLong=fifteen.trend==='DOWNTREND'&&fifteen.momentum==='BEARISH';
         const fifteenOpposesShort=fifteen.trend==='UPTREND'&&fifteen.momentum==='BULLISH';
-        const oneLong=one.momentum==='BULLISH'&&one.falseEntry==='CLEAR'&&!one.consolidation&&(one.checks.breakout||(one.checks.candleBody&&one.volumeRatio>=0.9));
-        const oneShort=one.momentum==='BEARISH'&&one.falseEntry==='CLEAR'&&!one.consolidation&&(one.checks.breakout||(one.checks.candleBody&&one.volumeRatio>=0.9));
+        const oneLong=one.momentum==='BULLISH'&&one.falseEntry==='CLEAR'&&!one.consolidation&&((one.checks.longBreakout&&one.checks.bullishCandle)||(one.checks.bullishCandle&&one.bodyRatio>=0.55&&one.volumeRatio>=1.0));
+        const oneShort=one.momentum==='BEARISH'&&one.falseEntry==='CLEAR'&&!one.consolidation&&((one.checks.shortBreakout&&one.checks.bearishCandle)||(one.checks.bearishCandle&&one.bodyRatio>=0.55&&one.volumeRatio>=1.0));
         const side=fiveBias==='LONG'&&oneLong&&!fifteenOpposesLong?'LONG':fiveBias==='SHORT'&&oneShort&&!fifteenOpposesShort?'SHORT':'WAIT';
         const longClues=[one.momentum==='BULLISH',five.trend==='UPTREND'||five.momentum==='BULLISH',fifteen.trend==='UPTREND'||fifteen.momentum==='BULLISH'].filter(Boolean).length;
         const shortClues=[one.momentum==='BEARISH',five.trend==='DOWNTREND'||five.momentum==='BEARISH',fifteen.trend==='DOWNTREND'||fifteen.momentum==='BEARISH'].filter(Boolean).length;
@@ -398,7 +398,7 @@ export default function App(){
         if(cancelled||!five||!fifteen)return;
         const bias=getDirectionalBias(five);
         const opposing=bias==='LONG'?(fifteen.trend==='DOWNTREND'&&fifteen.momentum==='BEARISH'):bias==='SHORT'?(fifteen.trend==='UPTREND'&&fifteen.momentum==='BULLISH'):false;
-        const trigger=five.falseEntry==='CLEAR'&&(five.checks.breakout||(!five.consolidation&&five.bodyRatio>=0.30&&five.volumeRatio>=0.65));
+        const trigger=five.falseEntry==='CLEAR'&&!five.consolidation&&(bias==='LONG'?((five.checks.longBreakout&&five.checks.bullishCandle)||(five.checks.bullishCandle&&five.bodyRatio>=0.55&&five.volumeRatio>=1.0)):bias==='SHORT'?((five.checks.shortBreakout&&five.checks.bearishCandle)||(five.checks.bearishCandle&&five.bodyRatio>=0.55&&five.volumeRatio>=1.0)):false);
         const side=bias&&trigger&&!opposing?bias:'WAIT';
         const earlySide=side==='WAIT'&&!opposing&&bias?bias:null;
         const levels=side!=='WAIT'?buildTradeLevels(fiveRaw,side,last):null;
