@@ -30,7 +30,10 @@ export function analyseMarket(raw, livePrice) {
   if (!e9 || !e21 || !e50 || !price) return null;
   const strength = rsi(closes);
   const recent = completed.slice(-14);
-  const atr = recent.reduce((s,c)=>s+(c.high-c.low),0)/recent.length;
+  const atr = recent.reduce((sum,c,i)=>{
+    const previous = completed[completed.length-recent.length+i-1]?.close;
+    return sum + (previous == null ? c.high-c.low : Math.max(c.high-c.low,Math.abs(c.high-previous),Math.abs(c.low-previous)));
+  },0)/recent.length;
   const recent12 = completed.slice(-13,-1);
   const rangeHigh = Math.max(...recent12.map(c=>c.high));
   const rangeLow = Math.min(...recent12.map(c=>c.low));
@@ -41,8 +44,10 @@ export function analyseMarket(raw, livePrice) {
   const body = Math.abs(last.close-last.open);
   const fullRange = Math.max(last.high-last.low, 1e-12);
   const bodyRatio = body/fullRange;
-  const bullishTrend = price > e9 && e9 > e21 && e21 > e50;
-  const bearishTrend = price < e9 && e9 < e21 && e21 < e50;
+  // Determine trend from the last CLOSED candle, not the moving live mark price.
+  const closedPrice = closes.at(-1);
+  const bullishTrend = closedPrice > e9 && e9 > e21 && e21 > e50;
+  const bearishTrend = closedPrice < e9 && e9 < e21 && e21 < e50;
   const trend = bullishTrend ? 'UPTREND' : bearishTrend ? 'DOWNTREND' : 'MIXED';
   const bullishMomentum = strength >= 52 && strength < 72 && closes.at(-1) > closes.at(-4);
   const bearishMomentum = strength <= 48 && strength > 28 && closes.at(-1) < closes.at(-4);
@@ -50,7 +55,9 @@ export function analyseMarket(raw, livePrice) {
   const consolidation = atr > 0 && range12 < atr * 3.2;
   const longBreakout = last.close > rangeHigh;
   const shortBreakout = last.close < rangeLow;
-  const confirmation = (longBreakout || shortBreakout) && bodyRatio >= 0.4 && volumeRatio >= 1.05;
+  const bullishCandle = last.close > last.open;
+  const bearishCandle = last.close < last.open;
+  const confirmation = (longBreakout || shortBreakout) && bodyRatio >= 0.5 && volumeRatio >= 1.1;
   const distanceFromFast = Math.abs(price-e9);
   const overextended = atr > 0 && distanceFromFast > atr*1.8;
   const weakVolume = avgVolume > 0 && volumeRatio < 0.65;
@@ -62,8 +69,8 @@ export function analyseMarket(raw, livePrice) {
   if (consolidation) reasons.push('Price is consolidating');
   if (!confirmation) reasons.push('Waiting for breakout and candle/volume confirmation');
   if (falseEntry) reasons.push(overextended ? 'Price is overextended from EMA 9' : weakVolume ? 'Breakout volume is too weak' : 'Candle has a weak body / rejection');
-  const longReady = bullishTrend && bullishMomentum && !consolidation && longBreakout && confirmation && !falseEntry;
-  const shortReady = bearishTrend && bearishMomentum && !consolidation && shortBreakout && confirmation && !falseEntry;
+  const longReady = bullishTrend && bullishMomentum && !consolidation && longBreakout && bullishCandle && bodyRatio >= 0.5 && volumeRatio >= 1.1 && !falseEntry;
+  const shortReady = bearishTrend && bearishMomentum && !consolidation && shortBreakout && bearishCandle && bodyRatio >= 0.5 && volumeRatio >= 1.1 && !falseEntry;
   const side = longReady ? 'LONG' : shortReady ? 'SHORT' : 'WAIT';
   // Early setups identify directional conditions before the strict breakout trigger.
   // They are watch candidates only, never confirmed entries.
@@ -92,7 +99,8 @@ export function analyseMarket(raw, livePrice) {
       trendAligned: bullishTrend || bearishTrend,
       momentumAligned: bullishMomentum || bearishMomentum,
       breakout: longBreakout || shortBreakout,
-      candleBody: bodyRatio >= 0.4,
+      longBreakout, shortBreakout, bullishCandle, bearishCandle,
+      candleBody: bodyRatio >= 0.5,
       volume: volumeRatio >= 1.05,
       consolidation,
       falseEntry
