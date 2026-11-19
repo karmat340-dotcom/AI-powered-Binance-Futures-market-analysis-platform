@@ -73,3 +73,19 @@
 .mode-toggle button.selected{background:#163d38;color:#51e0b7;box-shadow:inset 0 0 0 1px #276b5b}
 .mode-toggle button:hover{color:#e5edf7}
 @media(max-width:760px){.scanner-controls{flex-wrap:wrap}.mode-toggle{order:-1}}
+
+
+/* Trained ML model dashboard */
+.ml-model-panel{grid-column:1/-1}
+.ml-model-card{background:#0a1422;border:1px solid #22334a;border-radius:12px;padding:16px;margin-top:12px}
+.ml-model-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.ml-model-title>b{font-size:12px;letter-spacing:.08em;color:#c4d0df}
+.ml-model-title>strong{font-size:14px;letter-spacing:.08em}
+.ml-probabilities,.ml-metrics-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.ml-probabilities>div,.ml-metrics-grid>div{background:#101e30;border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:5px}
+.ml-probabilities small,.ml-metrics-grid small{font-size:10px;color:#8192a9;text-transform:uppercase;letter-spacing:.05em}
+.ml-probabilities b{font-size:18px}
+.ml-metrics-grid{margin-top:10px}
+.ml-metrics-grid b{font-size:13px;color:#dce6f2}
+.ml-source{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:12px;color:#8293aa;font-size:10px}
+@media(max-width:700px){.ml-probabilities,.ml-metrics-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ml-source{flex-direction:column}}
