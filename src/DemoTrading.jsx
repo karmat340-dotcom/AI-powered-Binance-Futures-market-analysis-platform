@@ -24,23 +24,21 @@ export default function DemoTrading({symbol,price,tickers=[]}){
   useEffect(()=>{localStorage.setItem('tradeai-demo-history',JSON.stringify(history))},[history]);
   useEffect(()=>{
     if(!tickers.length)return;
-    setPositions(current=>{
-      let changed=false;const keep=[];
-      current.forEach(p=>{
-        const currentPrice=p.symbol===symbol&&price>0?price:(prices[p.symbol]||0);
-        if(!currentPrice){keep.push(p);return}
-        const hitStop=p.stop>0&&(p.side==='LONG'?currentPrice<=p.stop:currentPrice>=p.stop);
-        const hitTarget=p.target>0&&(p.side==='LONG'?currentPrice>=p.target:currentPrice<=p.target);
-        if(hitStop||hitTarget){
-          const result=pnl(p,currentPrice);
-          setBalance(b=>Math.max(0,b+p.margin+result));
-          setHistory(h=>[{...p,exit:currentPrice,pnl:result,closedAt:new Date().toISOString(),reason:hitStop?'STOP LOSS':'TAKE PROFIT'},...h].slice(0,30));
-          changed=true;
-        }else keep.push(p);
-      });
-      return changed?keep:current;
+    const closed=[],keep=[];
+    positions.forEach(p=>{
+      const currentPrice=p.symbol===symbol&&price>0?price:(prices[p.symbol]||0);
+      if(!currentPrice){keep.push(p);return}
+      const hitStop=p.stop>0&&(p.side==='LONG'?currentPrice<=p.stop:currentPrice>=p.stop);
+      const hitTarget=p.target>0&&(p.side==='LONG'?currentPrice>=p.target:currentPrice<=p.target);
+      if(hitStop||hitTarget)closed.push({...p,exit:currentPrice,pnl:pnl(p,currentPrice),closedAt:new Date().toISOString(),reason:hitStop?'STOP LOSS':'TAKE PROFIT'});
+      else keep.push(p);
     });
-  },[tickers,price,symbol]);
+    if(closed.length){
+      setPositions(keep);
+      setBalance(b=>Math.max(0,b+closed.reduce((sum,p)=>sum+p.margin+p.pnl,0)));
+      setHistory(h=>[...closed,...h].slice(0,30));
+    }
+  },[tickers,price,symbol,positions,prices]);
   function open(side){
     const m=Number(margin),lev=Number(leverage),entry=Number(price);
     if(!entry||!Number.isFinite(entry)){setNotice('Live price is not ready yet.');return}
