@@ -73,31 +73,38 @@ def build_dataset(mode):
         frame = x.copy()
         frame["target"] = y
         frame["symbol"] = symbol
+        frame["time"] = pd.to_numeric(pd.Series([int(c[0]) for c in raw]), errors="coerce").values
         frame = frame.iloc[:-horizon].dropna(subset=FEATURES)
         chunks.append(frame)
     return pd.concat(chunks, ignore_index=True)
 
 def train(mode):
-    data = build_dataset(mode)
+    data = build_dataset(mode).sort_values("time").reset_index(drop=True)
     if len(data) < 3000:
         raise RuntimeError(f"Not enough clean training rows: {len(data)}")
-    x = data[FEATURES].astype(float)
-    y = data.target
-    split = int(len(data) * 0.8)
-    # Chronological holdout; do not randomly shuffle future observations into training.
-    x_train, x_test = x.iloc[:split], x.iloc[split:]
-    y_train, y_test = y.iloc[:split], y.iloc[split:]
+    # Split by global timestamp, not by row or symbol. Purge the label horizon
+    # immediately before the test window to reduce forward-label leakage.
+    unique_times = np.sort(data["time"].unique())
+    cutoff = unique_times[int(len(unique_times) * 0.8)]
+    interval_ms = 60_000 if mode == "scalp" else 300_000
+    horizon = 5 if mode == "scalp" else 6
+    train = data[data["time"] < cutoff - horizon * interval_ms]
+    test = data[data["time"] >= cutoff]
+    x_train, x_test = train[FEATURES].astype(float), test[FEATURES].astype(float)
+    y_train, y_test = train.target, test.target
+    if len(x_test) < 200:
+        raise RuntimeError("Chronological test set is too small")
     pipeline = Pipeline([
         ("imputer", SimpleImputer(strategy="median")),
         ("model", RandomForestClassifier(
-            n_estimators=350, max_depth=9, min_samples_leaf=12,
+            n_estimators=180, max_depth=8, min_samples_leaf=18,
             class_weight="balanced_subsample", n_jobs=-1, random_state=42
         ))
     ])
     pipeline.fit(x_train, y_train)
     pred = pipeline.predict(x_test)
     metrics = {
-        "rows": int(len(data)), "train_rows": int(len(x_train)), "test_rows": int(len(x_test)),
+        "rows": int(len(data)), "train_rows": int(len(x_train)), "test_rows": int(len(x_test)), "test_start_time": int(cutoff),
         "accuracy": round(float(accuracy_score(y_test, pred)), 4),
         "balanced_accuracy": round(float(balanced_accuracy_score(y_test, pred)), 4),
         "report": classification_report(y_test, pred, output_dict=True, zero_division=0)
