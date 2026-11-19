@@ -107,8 +107,6 @@ export default function App(){
   const [scannerBusy,setScannerBusy]=useState(false);
   const [scannerMode,setScannerMode]=useState(()=>localStorage.getItem('tradeai-scanner-mode')||'normal');
   useEffect(()=>{localStorage.setItem('tradeai-scanner-mode',scannerMode)},[scannerMode]);
-  const [earlySetups,setEarlySetups]=useState([]);
-  const [potentialSetups,setPotentialSetups]=useState([]);
   const [leverage,setLeverage]=useState(()=>localStorage.getItem('tradeai-leverage')||'5');
   useEffect(()=>{localStorage.setItem('tradeai-leverage',leverage)},[leverage]);
   const [scannerError,setScannerError]=useState('');
@@ -228,8 +226,6 @@ export default function App(){
         if(!cancelled){
           setScanStats(scan.stats);
           const confirmedResults=results.filter(item=>item.status==='STRONG'||item.status==='MODERATE'||item.status==='SCALP');
-          setEarlySetups(results.filter(item=>item.status==='EARLY'||item.status==='SCALP WATCH'));
-          setPotentialSetups(results.filter(item=>item.status==='POTENTIAL'));
           setScannerTrades(existing=>{
             const next={...existing};
             confirmedResults.forEach(item=>{
@@ -382,7 +378,6 @@ export default function App(){
     return ()=>{cancelled=true;clearInterval(interval)};
   },[symbol,last]);
   const scalpAnalysis=scalpConsensus?.symbol===symbol?scalpConsensus.analysis:null;
-  const [fiveMinuteScalp,setFiveMinuteScalp]=useState(null);
   useEffect(()=>{
     let cancelled=false,running=false;
     const checkFiveMinuteScalp=async()=>{
@@ -414,7 +409,6 @@ export default function App(){
     const interval=setInterval(checkFiveMinuteScalp,20000);
     return ()=>{cancelled=true;clearInterval(interval)};
   },[symbol,last]);
-  const fiveMinuteScalpAnalysis=fiveMinuteScalp?.symbol===symbol?fiveMinuteScalp.analysis:null;
 
   const analysis=consensus?.symbol===symbol?consensus.analysis:null;
   const signal=analysis?.side||'WAIT';
