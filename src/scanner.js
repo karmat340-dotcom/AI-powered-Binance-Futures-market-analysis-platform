@@ -52,9 +52,9 @@ export async function scanMarkets(tickers, options = {}) {
         const fifteenOpposesLong = fifteen.trend === 'DOWNTREND' && fifteen.momentum === 'BEARISH';
         const fifteenOpposesShort = fifteen.trend === 'UPTREND' && fifteen.momentum === 'BULLISH';
         const oneLong = one.momentum === 'BULLISH' && one.falseEntry === 'CLEAR' && !one.consolidation &&
-          (one.checks.breakout || (one.checks.candleBody && one.volumeRatio >= 0.9));
+          ((one.checks.longBreakout && one.checks.bullishCandle) || (one.checks.bullishCandle && one.bodyRatio >= 0.55 && one.volumeRatio >= 1.0));
         const oneShort = one.momentum === 'BEARISH' && one.falseEntry === 'CLEAR' && !one.consolidation &&
-          (one.checks.breakout || (one.checks.candleBody && one.volumeRatio >= 0.9));
+          ((one.checks.shortBreakout && one.checks.bearishCandle) || (one.checks.bearishCandle && one.bodyRatio >= 0.55 && one.volumeRatio >= 1.0));
         if (fiveBias === 'LONG' && oneLong && !fifteenOpposesLong) side = 'LONG';
         if (fiveBias === 'SHORT' && oneShort && !fifteenOpposesShort) side = 'SHORT';
         if (side) status = 'SCALP';
@@ -78,8 +78,13 @@ export async function scanMarkets(tickers, options = {}) {
         const opposing = bias === 'LONG'
           ? fifteen.trend === 'DOWNTREND' && fifteen.momentum === 'BEARISH'
           : bias === 'SHORT' ? fifteen.trend === 'UPTREND' && fifteen.momentum === 'BULLISH' : false;
-        const trigger = five.falseEntry === 'CLEAR' &&
-          (five.checks.breakout || (!five.consolidation && five.bodyRatio >= 0.30 && five.volumeRatio >= 0.65));
+        const trigger = five.falseEntry === 'CLEAR' && !five.consolidation && (
+          bias === 'LONG'
+            ? (five.checks.longBreakout && five.checks.bullishCandle) || (five.checks.bullishCandle && five.bodyRatio >= 0.55 && five.volumeRatio >= 1.0)
+            : bias === 'SHORT'
+              ? (five.checks.shortBreakout && five.checks.bearishCandle) || (five.checks.bearishCandle && five.bodyRatio >= 0.55 && five.volumeRatio >= 1.0)
+              : false
+        );
         if (bias && trigger && !opposing) { side = bias; status = 'SCALP'; }
         else {
           const longClues = [five.trend === 'UPTREND',five.momentum === 'BULLISH',one.momentum === 'BULLISH'].filter(Boolean).length;
@@ -99,10 +104,7 @@ export async function scanMarkets(tickers, options = {}) {
         const strong = frames.every(frame => frame.side !== 'WAIT' && frame.side === frames[0].side);
         const bias15m = getDirectionalBias(frames[1]), bias1h = getDirectionalBias(frames[2]);
         const higherDirection = bias15m && bias15m === bias1h ? bias15m : null;
-        const fiveSupports = higherDirection === 'LONG'
-          ? frames[0].falseEntry === 'CLEAR' && frames[0].momentum !== 'BEARISH' && frames[0].trend !== 'DOWNTREND'
-          : higherDirection === 'SHORT'
-            ? frames[0].falseEntry === 'CLEAR' && frames[0].momentum !== 'BULLISH' && frames[0].trend !== 'UPTREND' : false;
+        const fiveSupports = getDirectionalBias(frames[0]) === higherDirection && frames[0].falseEntry === 'CLEAR' && !frames[0].consolidation;
         const moderate = !strong && !!higherDirection && frames[1].falseEntry === 'CLEAR' && frames[2].falseEntry === 'CLEAR' && fiveSupports;
         side = strong ? frames[0].side : moderate ? higherDirection : null;
         status = strong ? 'STRONG' : moderate ? 'MODERATE' : 'EARLY';
@@ -161,6 +163,7 @@ export async function scanMarkets(tickers, options = {}) {
   });
   await Promise.all(workers);
   const rank = mode !== 'normal' ? {'SCALP':0,'SCALP WATCH':1} : {STRONG:0,MODERATE:1,EARLY:2,POTENTIAL:3};
+  const stats = {attempted:candidates.length,analysed,dataErrors,strong:results.filter(x=>x.status==='STRONG').length,moderate:results.filter(x=>x.status==='MODERATE').length,early:results.filter(x=>x.status==='EARLY').length,potential:results.filter(x=>x.status==='POTENTIAL').length,scalp:results.filter(x=>x.status==='SCALP').length,scalpWatch:results.filter(x=>x.status==='SCALP WATCH').length};
   const sorted = results.sort((a,b)=>(rank[a.status]-rank[b.status])||(b.score-a.score)).slice(0,20);
-  return {results:sorted,stats:{attempted:candidates.length,analysed,dataErrors,strong:results.filter(x=>x.status==='STRONG').length,moderate:results.filter(x=>x.status==='MODERATE').length,early:results.filter(x=>x.status==='EARLY').length,potential:results.filter(x=>x.status==='POTENTIAL').length,scalp:results.filter(x=>x.status==='SCALP').length,scalpWatch:results.filter(x=>x.status==='SCALP WATCH').length}};
+  return {results:sorted,stats};
 }
