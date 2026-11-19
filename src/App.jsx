@@ -101,7 +101,7 @@ export default function App(){
   const [scannerTrades,setScannerTrades]=useState(()=>{
     try{
       const saved=JSON.parse(localStorage.getItem('tradeai-scanner-trades')||'{}');
-      return Object.fromEntries(Object.entries(saved).filter(([,trade])=>trade.analysisVersion===2));
+      return Object.fromEntries(Object.entries(saved).filter(([,trade])=>trade.analysisVersion===3));
     }catch{return {}}
   });
   const [scannerBusy,setScannerBusy]=useState(false);
@@ -236,7 +236,7 @@ export default function App(){
               if(next[item.symbol])return;
               const key='tradeai-scanner-last-signal-'+item.symbol;
               if(localStorage.getItem(key)===item.side)return;
-              next[item.symbol]={...item,analysisVersion:2,id:Date.now()+'-'+item.symbol,status:'ACTIVE',openedAt:new Date().toISOString()};
+              next[item.symbol]={...item,analysisVersion:3,id:Date.now()+'-'+item.symbol,status:'ACTIVE',openedAt:new Date().toISOString()};
               notifyTradeOpen(next[item.symbol],'Automatic market scanner');
               localStorage.setItem(key,item.side);
             });
