@@ -41,6 +41,70 @@ def feature_frame(raw):
     })
     return out.replace([np.inf, -np.inf], np.nan)
 
+def fetch_live_candles(symbol, interval):
+    """Fetch recent live futures candles from Binance mirrors, then OKX, then Bybit."""
+    errors = []
+    params = {"symbol": symbol, "interval": interval, "limit": 180}
+    for host in ["https://fapi.binance.com", "https://fapi1.binance.com", "https://fapi2.binance.com", "https://fapi3.binance.com"]:
+        try:
+            response = requests.get(f"{host}/fapi/v1/klines", params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            if isinstance(data, list) and data:
+                return data, f"Binance USD-M Futures ({host})"
+            errors.append(f"{host}: empty/invalid response")
+        except Exception as exc:
+            errors.append(f"{host}: {exc}")
+
+    # OKX uses instrument IDs such as BTC-USDT-SWAP and bars such as 1m/5m.
+    try:
+        inst_id = symbol[:-4] + "-USDT-SWAP" if symbol.endswith("USDT") else symbol
+        response = requests.get(
+            "https://www.okx.com/api/v5/market/candles",
+            params={"instId": inst_id, "bar": interval, "limit": "180"},
+            timeout=12
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("code") != "0":
+            raise RuntimeError(payload.get("msg", "OKX returned an error"))
+        candles = payload.get("data", [])
+        candles.sort(key=lambda c: int(c[0]))
+        interval_ms = 60_000 if interval == "1m" else 300_000
+        raw = [[int(c[0]), c[1], c[2], c[3], c[4], c[5],
+                int(c[0]) + interval_ms - 1, c[5], 0, 0, 0, 0] for c in candles]
+        if raw:
+            return raw, "OKX public market candles (USDT swap)"
+        errors.append("OKX: no candles returned")
+    except Exception as exc:
+        errors.append(f"OKX: {exc}")
+
+    # Last-resort provider. Some hosting regions may block Bybit.
+    try:
+        bybit_interval = "1" if interval == "1m" else "5"
+        response = requests.get(
+            "https://api.bybit.com/v5/market/kline",
+            params={"category": "linear", "symbol": symbol, "interval": bybit_interval, "limit": 180},
+            timeout=12
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("retCode") != 0:
+            raise RuntimeError(payload.get("retMsg", "Bybit returned an error"))
+        candles = payload.get("result", {}).get("list", [])
+        candles.sort(key=lambda c: int(c[0]))
+        interval_ms = 60_000 if interval == "1m" else 300_000
+        raw = [[int(c[0]), c[1], c[2], c[3], c[4], c[5],
+                int(c[0]) + interval_ms - 1, c[6], 0, 0, 0, 0] for c in candles]
+        if raw:
+            return raw, "Bybit linear-perpetual public candles"
+        errors.append("Bybit: no candles returned")
+    except Exception as exc:
+        errors.append(f"Bybit: {exc}")
+
+    raise RuntimeError("All live market-data providers failed: " + " | ".join(errors))
+
+
 def get_model(mode):
     path = MODEL_DIR / f"model_{mode}.joblib"
     if not path.exists():
@@ -59,30 +123,7 @@ def predict(symbol: str = Query("BTCUSDT", pattern=r"^[A-Z0-9]{3,20}USDT$"), mod
     model = get_model(mode)
     interval = "1m" if mode == "scalp" else "5m"
     try:
-        try:
-            response = requests.get(f"{API}/fapi/v1/klines", params={"symbol": symbol, "interval": interval, "limit": 180}, timeout=12)
-            response.raise_for_status()
-            raw = response.json()
-            source = "Binance USD-M Futures public candles"
-        except requests.RequestException as binance_error:
-            # Regional restrictions can return HTTP 451 from Binance. Use Bybit's
-            # equivalent linear-perpetual candles so the prediction endpoint remains usable.
-            bybit_interval = "1" if interval == "1m" else "5"
-            response = requests.get(
-                "https://api.bybit.com/v5/market/kline",
-                params={"category": "linear", "symbol": symbol, "interval": bybit_interval, "limit": 180},
-                timeout=12
-            )
-            response.raise_for_status()
-            payload = response.json()
-            if payload.get("retCode") != 0:
-                raise RuntimeError(f"Binance unavailable ({binance_error}); Bybit error: {payload.get('retMsg', 'unknown')}")
-            interval_ms = 60_000 if interval == "1m" else 300_000
-            candles = payload.get("result", {}).get("list", [])
-            candles.sort(key=lambda c: int(c[0]))
-            raw = [[int(c[0]), c[1], c[2], c[3], c[4], c[5],
-                    int(c[0]) + interval_ms - 1, c[6], 0, 0, 0, 0] for c in candles]
-            source = "Bybit linear-perpetual public candles (Binance fallback)"
+        raw, source = fetch_live_candles(symbol, interval)
         if not raw:
             raise ValueError("Market-data provider returned no candles")
         # Exclude the still-forming candle from the model input.
