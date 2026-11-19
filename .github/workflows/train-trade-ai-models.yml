@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/train-trade-ai-models.yml'
+      - 'ml_backend/train.py'
 
 permissions:
   contents: write
