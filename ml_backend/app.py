@@ -59,9 +59,32 @@ def predict(symbol: str = Query("BTCUSDT", pattern=r"^[A-Z0-9]{3,20}USDT$"), mod
     model = get_model(mode)
     interval = "1m" if mode == "scalp" else "5m"
     try:
-        response = requests.get(f"{API}/fapi/v1/klines", params={"symbol": symbol, "interval": interval, "limit": 180}, timeout=12)
-        response.raise_for_status()
-        raw = response.json()
+        try:
+            response = requests.get(f"{API}/fapi/v1/klines", params={"symbol": symbol, "interval": interval, "limit": 180}, timeout=12)
+            response.raise_for_status()
+            raw = response.json()
+            source = "Binance USD-M Futures public candles"
+        except requests.RequestException as binance_error:
+            # Regional restrictions can return HTTP 451 from Binance. Use Bybit's
+            # equivalent linear-perpetual candles so the prediction endpoint remains usable.
+            bybit_interval = "1" if interval == "1m" else "5"
+            response = requests.get(
+                "https://api.bybit.com/v5/market/kline",
+                params={"category": "linear", "symbol": symbol, "interval": bybit_interval, "limit": 180},
+                timeout=12
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if payload.get("retCode") != 0:
+                raise RuntimeError(f"Binance unavailable ({binance_error}); Bybit error: {payload.get('retMsg', 'unknown')}")
+            interval_ms = 60_000 if interval == "1m" else 300_000
+            candles = payload.get("result", {}).get("list", [])
+            candles.sort(key=lambda c: int(c[0]))
+            raw = [[int(c[0]), c[1], c[2], c[3], c[4], c[5],
+                    int(c[0]) + interval_ms - 1, c[6], 0, 0, 0, 0] for c in candles]
+            source = "Bybit linear-perpetual public candles (Binance fallback)"
+        if not raw:
+            raise ValueError("Market-data provider returned no candles")
         # Exclude the still-forming candle from the model input.
         features = feature_frame(raw[:-1]).dropna()
         if features.empty:
@@ -80,7 +103,7 @@ def predict(symbol: str = Query("BTCUSDT", pattern=r"^[A-Z0-9]{3,20}USDT$"), mod
             "confidence": confidence, "class_probabilities": probs,
             "model_trained_at": model.get("trained_at"),
             "test_metrics": model.get("metrics", {}),
-            "candle_time": int(raw[-2][0]), "source": "Binance USD-M Futures public candles",
+            "candle_time": int(raw[-2][0]), "source": source,
             "note": "Model prediction, not a guaranteed win probability. Confirm risk and execution costs."
         }
     except HTTPException:
